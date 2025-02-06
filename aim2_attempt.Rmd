@@ -55,47 +55,7 @@ M00307 <- read_excel("Downloads/M00307.xlsx") %>%
   rename("gene_name"=c(1), "ID"=c(2)) %>% 
   distinct(gene_name)
 
-#------------pathway A - contains conflicting modules - 10 modules, 8 modules increase, 2 modules decrease:
-up_sm3_gene_name=rbind(M00173,M00375) %>% 
-  distinct(gene_name) 
-down_sm3_gene_name=rbind(M00374,M00376,M00377,M00579,M00620,M00007,M00009,M00307) %>%
-  distinct(gene_name) 
-#clean up the gene names in increase and decrease are not overlapping:
-up_sm3_A=anti_join(up_sm3_gene_name,down_sm3_gene_name, by="gene_name") #these modules will up in case: 20 KO
-down_sm3_A=anti_join(down_sm3_gene_name,up_sm3_gene_name, by="gene_name") #these modules will down in case: 75 KO
-all_sm3_A=rbind(up_sm3_A, down_sm3_A) 
-  
-#balanced design: ncase=nctrl, var.case=var.control, and medium effect size (500 difference in mean)
-set.seed(123)
-#------------pathway A - (80% case = control, 20% case > control)
-#20 KO increase in case
-ctrl_A1 <- list()
-case_A1 <- list()
-all_A1<- list()
-for (i in 1:20) {
-  ctrl_A1[[i]] <- rnorm(n=10, mean=500, sd=50)
-  case_A1[[i]] <- rnorm(n=10, mean=1000, sd=50)
-  all_A1[[i]]=append(ctrl_A1[[i]],case_A1[[i]])
-}
-all_A1_rbind=lapply(seq_along(all_A1), function(x) do.call(rbind.data.frame, list(all_A1[[x]])))
-for (i in seq_along(all_A1_rbind)) {
-  colnames(all_A1_rbind[[i]]) <- paste0("S", seq(1, 20))
-}
-#75 KO control=case
-ctrl_A2 <- list()
-case_A2 <- list()
-all_A2<- list()
-for (i in 1:75) {
-  ctrl_A2[[i]] <- rnorm(n=10, mean=1000, sd=50)
-  case_A2[[i]] <- rnorm(n=10, mean=1000, sd=50)
-  all_A2[[i]]=append(ctrl_A2[[i]],case_A2[[i]])
-}
-all_A2_rbind=lapply(seq_along(all_A2), function(x) do.call(rbind.data.frame, list(all_A2[[x]])))
-for (i in seq_along(all_A2_rbind)) {
-  colnames(all_A2_rbind[[i]]) <- paste0("S", seq(1, 20))
-}
-all_A_sm3=cbind(all_sm3_A, bind_rows(all_A1_rbind,all_A2_rbind)) 
-                     
+#----pathway B and C are the two controls
 #------------pathway B - (0% case = control, 100% case > control)
 all_sm3_B=rbind(up_sm3_A, down_sm3_A) 
 set.seed(123)
