@@ -1,0 +1,97 @@
+---
+title: "aim2_multivariate"
+output: html_document
+date: "2025-02-07"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(stringr)
+library(faux)
+library(vegan)
+library(ComplexHeatmap)
+library(circlize)
+library(rio)
+library(dplyr)
+library(janitor)
+library(ape)
+library(readxl)
+library(edgeR)
+library(pairwiseAdonis)
+
+nall=1000
+nindie=950
+ncorr_tot=nall-nindie
+ncorr_up=3
+mu.diff=20
+mu.case=1000
+scase=50
+sctrl=50
+
+#-------balanced design:
+#-------simulate the independent KOs
+ctrl_indie <- list()
+case_indie <- list()
+all_indie <- list()
+for (i in 1:nindie) {
+  ctrl_indie[[i]] <- rnorm(n=sctrl, mean=1000, sd=50)
+  case_indie[[i]] <- rnorm(n=scase, mean=1000, sd=50)
+  all_indie[[i]]=append(ctrl_indie[[i]],case_indie[[i]])
+}
+indie_df=data.frame(all_indie)
+colnames(indie_df) <- paste0("KO", seq(ncol(indie_df)))
+rownames(indie_df) <- paste0("S", seq_len(nrow(indie_df)))
+
+#-------simulate the multivariate KOs part:multivariate unchanged KOs + multivariate KO up in case
+#-----multivariate case=ctrl first
+set.seed(123)
+ncorr_equal=ncorr_tot-ncorr_up
+#Define the mean vector mu=1000
+mu_equal_corr <- rep(1000, ncorr_equal) 
+
+#Define a random covariance matrix (randomly positive or negative)
+#Generate a random positive-definite covariance matrix 47*47 matrix
+ran_matrix_corr_equal <- matrix(rnorm(ncorr_equal*ncorr_equal), nrow = ncorr_equal)
+sigma_equal <- crossprod(ran_matrix_corr_equal)  # Ensures the matrix is symmetric and positive-definite
+
+#Generate 100 samples from the 47-dimensional multivariate normal distribution
+nindie_corr_equal=ncol(indie_df)+ncorr_equal
+ncorr_equal.df=rnorm_multi(n=scase+sctrl,
+                               mu=mu_equal_corr,
+                               sd=50,
+                               r=sigma_equal,
+                               varnames=paste0("KO", seq(ncol(indie_df)+1,nindie_corr_equal)),
+                               empirical=F)
+rownames(ncorr_equal.df) <- paste0("S", seq_len(nrow(ncorr_equal.df)))
+#-----multivariate case > ctrl
+ncorr_up
+mu_up_corr_case=rep(1000+mu.diff, ncorr_up) 
+mu_up_corr_ctrl=rep(1000, ncorr_up) 
+
+#generate covariance matrix:
+ran_matrix_corr_up <- matrix(rnorm(ncorr_up*ncorr_up), nrow = ncorr_up) #can I use the same for both case and ctrl
+sigma_up <- crossprod(ran_matrix_corr_up)
+
+#generate df case, generate df ctrl and then combine:
+ncorr_up_case.df=rnorm_multi(n=scase,
+                               mu=mu_up_corr_case,
+                               sd=50,
+                               r=sigma_up,
+                               varnames=paste0("KO", seq(nindie_corr_equal+1,nall)),
+                               empirical=F)
+ncorr_up_ctrl.df=rnorm_multi(n=sctrl,
+                               mu=mu_up_corr_ctrl,
+                               sd=50,
+                               r=sigma_up,
+                               varnames=paste0("KO", seq(nindie_corr_equal+1,nall)),
+                               empirical=F)
+ncorr_up.df=bind_rows(ncorr_up_ctrl.df,ncorr_up_case.df)
+rownames(ncorr_up.df) <- paste0("S", seq_len(nrow(ncorr_up.df)))
+#-----combine all the multivariates (equal and up):
+ncorr_all.df=bind_cols(ncorr_equal.df,ncorr_up.df)
+
+#-----combine the independent with the multivariate (changed + unchanged) KOs:
+final.df.sm2=bind_cols(indie_df,ncorr_all.df)
+
+```
+
