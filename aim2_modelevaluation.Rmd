@@ -1,0 +1,143 @@
+---
+title: "aim2_modelevaluation"
+output: html_document
+date: "2025-02-23"
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+
+#------import excel file:
+summary.per <- read_excel("~/Downloads/aim2.xlsx", sheet = "Calculation.R")
+
+#------calculate for FDR (when ES=0) (1824 p-values): type1error = FP/FP+TN 
+ng.pval=summary.per %>% filter(SM=="NG")
+fal.pos_ng.pval=ng.pval %>% filter(`p-value`<0.05) #false pos of ng.ctrl
+tru.neg_ng.pval=ng.pval %>% filter(`p-value`>=0.05) #true neg of ng.ctrl
+
+type1er_ng.pval=nrow(fal.pos_ng.pval)/(nrow(fal.pos_ng.pval)+nrow(tru.neg_ng.pval)) #0.05917808
+
+#------calculate for sensitivity for the models: sensitivity=TP/TP+FN
+all.es=summary.per %>% filter(SM!="NG") #207
+small.es=all.es %>% filter(ES < 0.4) #36
+med.es=all.es %>% filter(ES == 0.4) #126
+large.es=all.es %>% filter(ES > 0.4) #45
+
+tru.pos_med=med.es %>% filter(`p-value`<0.05)
+fal.neg_med=med.es %>% filter(`p-value`>0.05)
+tru.pos_small=small.es %>% filter(`p-value`<0.05)
+fal.neg_small=small.es %>% filter(`p-value`>0.05)
+tru.pos_large=large.es %>% filter(`p-value`<0.05)
+fal.neg_large=large.es %>% filter(`p-value`>0.05)
+
+sensitivity.med=nrow(tru.pos_med)/(nrow(tru.pos_med)+nrow(fal.neg_med)) #0.7698413
+sensitivity.small=nrow(tru.pos_small)/(nrow(tru.pos_small)+nrow(fal.neg_small)) #0.8333333, but this is because we have smaller numb of small ES data points - maybe need some more simulations
+sensitivity.large=nrow(tru.pos_large)/(nrow(tru.pos_large)+nrow(fal.neg_large)) #0.9555556, need more simulations
+
+avg.sensitivity_all.es=(sensitivity.med+sensitivity.small+sensitivity.large)/3 
+
+#---------plot sensitivity vs type 1 error: (using 17 different significant alpha thresholds
+alpha_thres=list(0.00001,0.0009,0.004,0.005,0.006,0.008,0.01,0.02,0.03,0.05,0.1,0.2,0.375,0.5,0.6,0.8,0.9)
+
+#---generate a function to calculate TPR:
+func.sensitivity=function(true.positive, false.negative) {
+  return(true.positive/(true.positive+false.negative)) }
+
+#---apply a threshold on all three effect-size levels (including negative ctrls as welll)
+all.es_positives=lapply(alpha_thres, function(x) summary.per %>% filter(`p-value`< x))
+all.es_negatives=lapply(alpha_thres, function(x) summary.per %>% filter(`p-value`> x))
+
+med.es_sensitivity=mapply(func.sensitivity, 
+                          lapply(all.es_positives, function(x) x %>% filter(ES == 0.4) %>% nrow(.)),
+                          lapply(all.es_negatives, function(x) x %>% filter(ES == 0.4) %>% nrow(.)))
+small.es_sensitivity=mapply(func.sensitivity,
+                            lapply(all.es_positives, function(x) x %>% filter(ES > 0 | ES < 0.4) %>% nrow(.)),
+                            lapply(all.es_negatives, function(x) x %>% filter(ES > 0 | ES < 0.4) %>% nrow(.)))
+large.es_sensitivity=mapply(func.sensitivity,
+                            lapply(all.es_positives, function(x) x %>% filter(ES > 0.4) %>% nrow(.)),
+                            lapply(all.es_negatives, function(x) x %>% filter(ES > 0.4) %>% nrow(.)))
+
+#---generate a function to calculate type 1 error:
+func.type1error=function(false.positive, true.negative) {
+  return(false.positive/(false.positive+true.negative))
+}
+
+#---apply a threshold:
+fpr=mapply(func.type1error, 
+           lapply(all.es_positives, function(x) x %>% filter(ES==0) %>% nrow(.)),
+           lapply(all.es_negatives, function(x) x %>% filter(ES==0) %>% nrow(.))) 
+
+#---make a fdr vs tpr plot:
+fdr_sen.med=data.frame(tpr=med.es_sensitivity, error=fpr) %>% rename("fpr"=c(2))
+fdr_sen.large=data.frame(tpr=large.es_sensitivity, error=fpr) %>% rename("fpr"=c(2)) 
+fdr_sen.small=data.frame(tpr=small.es_sensitivity, error=fpr) %>% rename("fpr"=c(2)) #this one is funky and did not do well
+
+#---Manual AUC Calculation
+auc_med=sum(diff(fdr_sen.med$fpr) * (head(fdr_sen.med$tpr, -1) + tail(fdr_sen.med$tpr, -1)) / 2) #0.81
+auc_large=sum(diff(fdr_sen.large$fpr)* (head(fdr_sen.large$tpr, -1) + tail(fdr_sen.large$tpr, -1)) / 2) #0.888
+auc_small=sum(diff(fdr_sen.small$fpr)* (head(fdr_sen.small$tpr, -1) + tail(fdr_sen.small$tpr, -1)) / 2) #0.459
+
+#---ROC plot for medium size (ES=0.4 since it has the most datapoints)
+ggplot(fdr_sen.med, aes(x = fpr, y = tpr)) +
+  geom_point(color = "red", size = 3) +               
+  labs(title = "ROC Curve for Medium Effect Size", 
+       x = "False Positive Rate", 
+       y = "True Positive Rate") +
+  geom_abline(slope = 1, intercept = 0) +
+  annotate("text", x = 0.6, y = 0.2,                          
+           label = paste("AUC =", round(auc_med, 2)), 
+           color = "red", size = 5) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  theme_minimal()
+
+#---ROC plot for large size
+ggplot(fdr_sen.large, aes(x = fpr, y = tpr)) +
+  geom_point(color = "red", size = 2) +               
+  labs(title = "ROC Curve for Large Effect Size", 
+       x = "False Positive Rate", 
+       y = "True Positive Rate") +
+  geom_abline(slope = 1, intercept = 0) +
+  annotate("text", x = 0.6, y = 0.2,                          
+           label = paste("AUC =", round(auc_large, 2)), 
+           color = "red", size = 5) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  theme_minimal()
+
+#---ROC plot for small size (ES<0.4 but >0)
+ggplot(fdr_sen.small, aes(x = fpr, y = tpr)) +
+  geom_point(color = "red", size = 2) +               
+  labs(title = "ROC Curve for Large Effect Size", 
+       x = "False Positive Rate", 
+       y = "True Positive Rate") +
+  geom_abline(slope = 1, intercept = 0) +
+  annotate("text", x = 0.6, y = 0.2,                          
+           label = paste("AUC =", round(auc_small, 2)), 
+           color = "red", size = 5) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  theme_minimal()
+
+#-------correlate to ID which is more of the es? R-sq or F-stat? using data with or without negative controls:
+#correlate ES with R-sq: - do it on non-negative control?
+with_neg_ctrl.Rsq=cor(summary.per$ES, summary.per$`R-sq`, method="pearson") #because if we want to use pearson, both es and r-sq has to be normal
+#-0.2348878
+with_neg_ctrl.Fstat=cor(summary.per$ES, summary.per$`F-statistic`, method="pearson")
+#0.3642853
+
+without_neg_ctrl.Rsq=cor(all.es$ES, all.es$`R-sq`, method="pearson")
+#0.4301494
+without_neg_ctrl.Fstat=cor(all.es$ES, all.es$`F-statistic`, method="pearson")
+#0.4510469
+
+df.corr=t(data.frame(with_neg_ctrl.Rsq,with_neg_ctrl.Fstat,without_neg_ctrl.Rsq,without_neg_ctrl.Fstat)) %>% as.data.frame(.) %>% rename("pearson_coeff"=c(1)) %>% rownames_to_column(var="correlation") %>% mutate(parameter=ifelse(correlation=="with_neg_ctrl.Fstat"|correlation=="without_neg_ctrl.Fstat","f-statistic","r-square"))
+
+ggplot(df.corr, aes(x=correlation, y=pearson_coeff, fill=parameter)) + 
+  geom_bar(stat = "identity", width=0.5)
+
+#--------compare balanced and un-balanced:
+
+
+```
+
