@@ -1,0 +1,140 @@
+---
+title: "aim2_ora"
+output: html_document
+date: "2025-02-27"
+---
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(faux)
+library(vegan)
+library(ComplexHeatmap)
+library(circlize)
+library(rio)
+library(dplyr)
+library(janitor)
+library(ape)
+library(readxl)
+library(edgeR)
+library(pairwiseAdonis)
+library(clusterProfiler)
+library(KEGGREST)
+
+###balanced, non-conflicting:--pathway A
+#----possible input:
+set.seed=123
+stotal=100 #number of total samples (sample sizes b/w groups need to be equal)
+kototal=1000 #number of total KOs
+nequal=980 #number of KOs we want to be equal (it has to be larger than 0, choose from this list)
+mu.differ=20 #try out different threshold: from 2 (small) to 20 (medium - still sig. for permanova) to 200 (large)
+mu.case=1000 #this may be fixed
+#-----
+#-----
+all_equal<- list()
+for (i in 1:nequal) {
+  all_equal[[i]] <- rnorm(n=stotal, mean=1000, sd=50)
+}
+df_equal=data.frame(all_equal)
+colnames(df_equal) <- paste0("KO", seq_len(ncol(df_equal)))
+rownames(df_equal) <- paste0("S", seq_len(nrow(df_equal)))
+
+#call the number of case > control: nup (nup=95-nequal)
+#call the difference between case and control: mu.case - mu.ctrl (aka-ES)
+nup=kototal-nequal
+case<-list()
+ctrl<-list()
+all_up<-list()
+for (i in 1:nup) {
+  ctrl[[i]] <- rnorm(n=stotal/2, mean=mu.case-mu.differ, sd=50)
+  case[[i]] <- rnorm(n=stotal/2, mean=mu.case, sd=50)
+  all_up[[i]]=append(ctrl[[i]],case[[i]])
+}
+df_up=data.frame(all_up)
+colnames(df_up) <- paste0("KO", seq(ncol(df_equal)+1,kototal))
+rownames(df_up) <- paste0("S", seq_len(nrow(df_up)))
+
+#merge change and the unchanged:
+pathwayA.df.sm3=df_equal %>% cbind(df_up)
+
+#-----------simulate the genes dont belong to pathway A:
+set.seed(123)
+n.non.pwA=1000
+
+# Generate random mean and standard deviation
+random_sd1=runif(1,30,50)  
+random_mean1=runif(1, 900,1200) 
+random_sd2=runif(1,40,60)
+random_mean2=runif(1,800,1000)
+
+non.pwA1=list()
+non.pwA2=list()
+all.non.pwA=list()
+for (i in 1:n.notpwA) {
+  non.pwA1[[i]]<-rnorm(stotal/2, mean=random_mean1, sd=random_sd1)
+  non.pwA2[[i]]<-rnorm(stotal/2, mean=random_mean2, sd=random_sd2)
+  all.non.pwA[[i]] <- append(non.pwA1,non.pwA2)
+}
+df_bg=data.frame(all.non.pwA)
+colnames(df_bg) <- paste0("BG", seq(ncol(df_bg)))
+rownames(df_bg) <- paste0("S", seq(nrow(df_bg)))
+
+#------------combine all parts:
+final.df.sm3=pathwayA.df.sm3 %>% cbind(df_bg)
+
+#------------z-score:
+metadata.sm3=data.frame(
+  Disease=append(rep(c("control"),stotal/2),rep(c("case"),stotal/2)),
+  Drug=rep(c("yes"),stotal),
+  BMI=runif(stotal, min=15, max=50))
+
+#################################
+#--------------------------------ORA and GSEA--automate this:
+set.seed(123)
+metadata.sm3$Disease 
+final.df.sm3
+
+#--------t-test for normal, equal dispersion:
+t.test.sm3 <- apply(final.df.sm3, 2, function(x) {
+  t_test <- t.test(x ~ metadata.sm3$Disease )  # Perform t-test
+  logFC <- log2(mean(x[metadata.sm3$Disease  == "case"]) / mean(x[metadata.sm3$Disease == "control"])) 
+  return(c(t_test$p.value, logFC))})# Return log2 fold change, and pvalue of ttest
+
+results_ttest.sm3 <- as.data.frame(t(t.test.sm3)) %>% 
+  rownames_to_column(var="gene") %>%
+  rename("p_value"=c(3), "logFC"=c(2)) #inputs for ORA and GSEA
+
+#--------ORA:
+#---apply p-val cutoff:
+ora.input_sm3=results_ttest.sm3 %>% filter(p_value <= 0.05)
+print(nrow(ora.input_sm3))
+ 
+ref_pwayA=kotota #number of genes in pathway A (defined by ref.db) - equal to the number of kototal
+ref_not_pwayA=nequal #number of genes not in pathway A (defined by ref. db)
+
+pwayA_DEG=round(0.05*nrow(ora.input_sm3))  #number of genes in DEG, and in pathway A (a)
+not.pwayA_DEG=nrow(ora.input_sm3) - pwayA_DEG #number of genes in DEG, and NOT in pathway A (b)
+
+pwayA_not.DEG=ref_pwayA - pwayA_DEG #number of genes NOT in DEG, and in pathway A (c)
+not.pwayA_not.DEG=ref_not_pwayA - not.pwayA_DEG #number of genes NOT in DEG, and NOT in pathway A (d)
+
+#---put a,b,c,d into a data frame + apply fisher's test:
+cont.tbl.sm3_ora=data.frame(
+  in_pathwayA = c(pwayA_DEG, pwayA_not.DEG),
+  not_in_pathwayA = c(not.pwayA_DEG, not.pwayA_not.DEG),
+  row.names = c("in DEG", "not in DEG")
+)
+ora.result_sm3 <- fisher.test(as.matrix(cont.tbl.sm3_ora)) 
+
+
+#---summary of ORA test:
+ora.summary_sm3=data.frame(ora.input_sm3=nrow(ora.input_sm3),
+                           pwayA_DEG=pwayA_DEG,
+                           pval=ora.result_sm3$p.value,
+                           or=ora.result_sm3$estimate,
+                           ci_low=ora.result_sm3$conf.int[[1]],
+                           ci_high=ora.result_sm3$conf.int[[2]])
+print(ora.summary_sm3)
+
+```
+
