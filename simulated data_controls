@@ -1,0 +1,337 @@
+---
+title: "aim2_control"
+output: html_document
+date: "2025-02-22"
+---
+
+```{r setup, include=FALSE}
+##########################################
+#-------------for unbalanced design:
+#----possible input:
+
+#number of total samples (sample sizes b/w groups need to be equal)
+scase=50
+sctrl=50
+kototal=1000 #number of total KOs
+nequal=50 #number of KOs we want to be equal (it has to be larger than 0, choose from this list)
+mu.differ=0 #try out different threshold: from 2 (small) to 20 (medium - still sig. for permanova) to 200 (large)
+mu.case=1000 #this may be fixed
+
+#-----
+case_equal<-list()
+ctrl_equal<-list()
+all_equal<- list()
+for (i in 1:nequal) {
+  ctrl_equal[[i]] <- rnorm(n=sctrl, mean=1000, sd=30)
+  case_equal[[i]] <- rnorm(n=scase, mean=1000, sd=70)
+  all_equal[[i]]=append(ctrl_equal[[i]],case_equal[[i]])
+}
+df_equal=data.frame(all_equal)
+colnames(df_equal) <- paste0("KO", seq_len(ncol(df_equal)))
+rownames(df_equal) <- paste0("S", seq_len(nrow(df_equal)))
+
+#call the difference between case and control: mu.case - mu.ctrl (aka-ES)
+nup=kototal-nequal
+case<-list()
+ctrl<-list()
+all_up<-list()
+for (i in 1:nup) {
+  ctrl[[i]] <- rnorm(n=sctrl, mean=mu.case-mu.differ, sd=30)
+  case[[i]] <- rnorm(n=scase, mean=mu.case, sd=70)
+  all_up[[i]]=append(ctrl[[i]],case[[i]])
+}
+df_up=data.frame(all_up)
+ncol(df_up)
+colnames(df_up) <- paste0("KO", seq(ncol(df_equal)+1,kototal))
+rownames(df_up) <- paste0("S", seq_len(nrow(df_up)))
+
+#merge change and the unchanged:
+final.df.sm3=df_equal %>% cbind(df_up)
+
+#------------z-score:
+z.final.sm3=data.frame(scale(final.df.sm3))
+metadata.sm3=data.frame(
+  Disease=append(rep(c("control"),sctrl),rep(c("case"),scase)),
+  Drug=rep(c("yes"),100),
+  BMI=runif(100, min=15, max=50))
+  
+#------------euclidean dis:
+dist_sm3=as.matrix(dist(z.final.sm3, method = "euclidean")) 
+
+#------------permanova:
+adonis_sm3=adonis2(dist_sm3 ~ Disease, metadata.sm3, permutations=100000,p.adjust.method="fdr") # ~ can try different covariates to test for significance
+adonis_sm3.df <- as.data.frame(adonis_sm3) %>% mutate(significance=ifelse(`Pr(>F)`< 0.05, "yes","no"))
+print(adonis_sm3.df)
+
+#########################################
+#--------FOR CONFLICTING SIGNALS:
+#-------gene number and number of cases where case=control
+#----possible input:
+set.seed=123
+stotal=100 #number of total samples (sample sizes b/w groups need to be equal)
+kototal=1000 #number of total KOs
+nequal=50 #number of KOs we want to be equal (it has to be larger than 0, choose from this list)
+mu.differ=0 #try out different threshold (for both nup and ndown)
+scase=30
+sctrl=70
+nconf=round((kototal-nequal)/2)
+mu.ctr_up=1000 #mu in control (when case goes up)
+mu.case_up=mu.ctr_up+mu.differ #case > ctr
+mu.ctr_down=1000 #case < ctr
+mu.case_down=mu.ctr_down-mu.differ
+
+#-----equal proportion (case=ctrl)
+all_equal<- list()
+ctrl_equal<-list()
+case_equal<-list()
+for (i in 1:nequal) {
+  ctrl_equal[[i]] <- rnorm(n=sctrl, mean=1000, sd=50)
+  case_equal[[i]]<- rnorm(n=scase, mean=1000, sd=50)
+  all_equal[[i]] <- append(ctrl_equal[[i]],case_equal[[i]])
+}
+df_equal=data.frame(all_equal)
+
+#-------conflicting (some KOs are increased while the other KOs are decreased)
+case_up_conf<-list()
+ctrl_up_conf<-list()
+all_up_conf<-list()
+case_down_conf<-list()
+ctrl_down_conf<-list()
+all_down_conf<-list()
+all_ctrl_conf<-list()
+all_case_conf<-list()
+
+for (i in 1:nconf) {
+  ctrl_up_conf[[i]] <- rnorm(n=sctrl, mean=mu.case-mu.differ, sd=50)
+  case_up_conf[[i]] <- rnorm(n=scase, mean=mu.case, sd=50)
+  all_up_conf[[i]]=append(ctrl_up_conf[[i]],case_up_conf[[i]])
+}
+df.conf.up=data.frame(all_up_conf)
+
+for (i in 1:nconf) {
+  ctrl_down_conf[[i]] <- rnorm(n=sctrl, mean=mu.case-mu.differ, sd=50)
+  case_down_conf[[i]] <- rnorm(n=scase, mean=mu.case, sd=50)
+  all_down_conf[[i]]=append(ctrl_down_conf[[i]],case_down_conf[[i]])
+}
+df.conf.down=data.frame(all_down_conf)
+
+final.df.sm3_conf=cbind(df_equal,df.conf.up,df.conf.down)
+colnames(final.df.sm3_conf) <- paste0("KO", seq_len(ncol(final.df.sm3_conf)))
+rownames(final.df.sm3_conf) <- paste0("S", seq_len(nrow(final.df.sm3_conf)))
+
+#------------z-score:
+z.final.sm3_conf=data.frame(scale(final.df.sm3_conf))
+metadata.sm3_conf=data.frame(
+  Disease=append(rep(c("control"),sctrl),rep(c("case"),scase)), #change stotal/2 into scase or sctrl if needed
+  Drug=rep(c("yes"),stotal),
+  BMI=runif(stotal, min=15, max=50))
+  
+#------------euclidean dis:
+dist_sm3_conf=as.matrix(dist(z.final.sm3_conf, method = "euclidean")) 
+
+#------------permanova:
+adonis_sm3_conf=adonis2(dist_sm3_conf ~ Disease, metadata.sm3_conf, permutations=100000, p.adjust.method="fdr") # ~ can try different covariates to test for significance
+adonis_sm3.df_conf <- as.data.frame(adonis_sm3_conf) %>% mutate(significance=ifelse(`Pr(>F)`< 0.05, "yes","no"))
+print(adonis_sm3.df_conf)
+
+#---------------------------------------------------------------------------
+#######UNBALANCED DESIGN:
+#---simulate portion that is correlated but case=ctrl: (sd.case=50, sd.ctrl=60)
+set.seed(123)
+nall=1000 #number of total genes 
+nindie=500 #number of independent genes
+ncorr_up=75 #number of multivariate genes and up in case #testing...maybe try another one??
+mu.diff=0 #ES between case-ctrl multivariate
+mu.ctrl=1000 #maybe should be fixed
+stotal=100 #number of total samples
+scase=60 #number of case samples
+sctrl=40 #number of ctrl samples
+ncorr_equal_ub=nall-nindie-ncorr_up
+
+#-----simulate the independent KOs
+ctrl_indie_ub <- list()
+case_indie_ub <- list()
+all_indie_ub <- list()
+for (i in 1:nindie) {
+  ctrl_indie_ub[[i]] <- rnorm(n=sctrl, mean=mu.ctrl, sd=50)
+  case_indie_ub[[i]] <- rnorm(n=scase, mean=mu.ctrl, sd=50)
+  all_indie_ub[[i]]=append(ctrl_indie_ub[[i]],case_indie_ub[[i]])
+}
+indie_df_ub=data.frame(all_indie_ub)
+
+#-----simulate the multivariate
+#---simulate portion that is correlated but case = ctrl: (sd.case=50, sd.ctrl=60)
+sd_equal_ub.case <- rep(50, ncorr_equal_ub)
+sd_equal_ub.ctr<- rep(50, ncorr_equal_ub)
+mu_equal_corr_ub=rep(mu.ctrl, ncorr_equal_ub)
+random_matrix=matrix(rnorm(ncorr_equal_ub * ncorr_equal_ub), nrow = ncorr_equal_ub)
+R <- cov2cor(crossprod(random_matrix))
+
+D.case <- diag(sd_equal_ub.case)
+D.ctrl<-diag(sd_equal_ub.ctr)
+
+Sigma.case <- D.case %*% R %*% D.case
+Sigma.ctrl <- D.ctrl %*% R %*% D.ctrl
+
+#mu.case = mu.ctrl
+ncorr_eq_case2 <- mvrnorm(n=scase, mu=mu_equal_corr_ub, Sigma=Sigma.case) %>% as.data.frame()
+ncorr_eq_ctrl2<- mvrnorm(n=sctrl, mu=mu_equal_corr_ub, Sigma=Sigma.ctrl) %>% as.data.frame()
+
+ncorr_eq_ub=ncorr_eq_ctrl2 %>% rbind(ncorr_eq_case2)
+
+#---simulate portion that is correlated and case > ctrl: (sd.case=50, sd.ctrl=60)
+sd_up_ub.case=rep(50, ncorr_up)
+sd_up_ub.ctrl=rep(50, ncorr_up)
+mu_up_corr_ub=rep(mu.diff+mu.ctrl, ncorr_up)
+
+random_matrix_up=matrix(rnorm(ncorr_up*ncorr_up), nrow=ncorr_up)
+R_up=cov2cor(crossprod(random_matrix_up))
+
+D_up.case<-diag(sd_up_ub.case)
+D_up.ctrl<-diag(sd_up_ub.ctrl)
+
+Sigma_up.case <- D_up.case %*% R_up %*% D_up.case
+Sigma_up.ctrl <- D_up.ctrl %*% R_up %*% D_up.ctrl
+
+#mu.case > mu.ctrl
+ncorr_up_case2 <- mvrnorm(n=scase, mu=mu_up_corr_ub, Sigma=Sigma_up.case) %>% as.data.frame()
+ncorr_up_ctrl2<- mvrnorm(n=sctrl, mu=mu_up_corr_ub-mu.diff, Sigma=Sigma_up.ctrl) %>% as.data.frame()
+
+#combine up multivariate with equal multivariate:
+ncorr_up_ub=ncorr_up_ctrl2 %>% rbind(ncorr_up_case2)
+ncorr_all=cbind(ncorr_up_ub,ncorr_eq_ub)
+
+#combine multivariate with indie:
+final.df.sm2=indie_df_ub %>% cbind(ncorr_all)
+colnames(final.df.sm2)<-paste0("KO", seq_len(ncol(final.df.sm2)))
+rownames(final.df.sm2)<-paste0("S", seq_len(nrow(final.df.sm2)))
+
+#------------z-score:
+z.final.sm2=data.frame(scale(final.df.sm2))
+metadata.sm2=data.frame(
+  Disease=append(rep(c("control"),sctrl),rep(c("case"),scase)),
+  Drug=rep(c("yes"),stotal),
+  BMI=runif(stotal, min=15, max=50))
+
+#------------euclidean dis:
+dist_sm2=as.matrix(dist(z.final.sm2, method = "euclidean")) 
+
+#------------permanova:
+adonis_sm2=adonis2(dist_sm2 ~ Disease, metadata.sm2, permutations=100000, p.adjust.method = "bonferroni") # ~ can try different covariates to test for significance
+adonis_sm2.df <- as.data.frame(adonis_sm2) %>% mutate(significance=ifelse(`Pr(>F)`< 0.05, "yes","no"))
+print(adonis_sm2.df)
+#------------
+
+#############################ORA:
+#------------possible input:
+set.seed(123)
+stotal=100 #number of total samples (sample sizes b/w groups need to be equal)
+scase=stotal/2
+sctrl=stotal/2
+kototal=1000 #number of total KOs (aka n.pwA)
+nequal=50 #number of KOs we want to be equal (it has to be larger than 0, choose from this list)
+mu.differ=0 #try out different threshold: from 2 (small) to 20 (medium - still sig. for permanova) to 200 (large)
+mu.case=1000 #this may be fixed
+n.notpwA=1000
+
+#------------genes in the pathway A
+#call the number of case=ctrol nequal
+all_equal<- list()
+case_equal<-list()
+ctrl_equal<-list()
+for (i in 1:nequal) {
+  case_equal[[i]] <- rnorm(n=scase, mean=1000, sd=70)
+  ctrl_equal[[i]]<- rnorm(n=sctrl, mean=1000, sd=30)
+  all_equal[[i]]=append(case_equal[[i]],ctrl_equal[[i]])
+}
+df_equal=data.frame(all_equal)
+
+#call the number of case > control: nup (nup=95-nequal)
+#call the difference between case and control: mu.case - mu.ctrl (aka-ES)
+nup=kototal-nequal #fix this into kototal-nequal if doing non-conflicting:
+case<-list()
+ctrl<-list()
+all_up<-list()
+for (i in 1:nup) {
+  ctrl[[i]] <- rnorm(n=sctrl, mean=mu.case-mu.differ, sd=30)
+  case[[i]] <- rnorm(n=scase, mean=mu.case, sd=70)
+  all_up[[i]]=append(ctrl[[i]],case[[i]])
+}
+df_up=data.frame(all_up)
+
+pathwayA.df.sm3=cbind(df_equal,df_up)
+colnames(pathwayA.df.sm3) <- paste0("KO", seq(ncol(pathwayA.df.sm3)))
+rownames(pathwayA.df.sm3) <- paste0("S", seq_len(nrow(pathwayA.df.sm3)))
+
+
+#------------simulate the genes dont belong to pathway A, portion that is correlated but case = ctrl: 
+set.seed(123)
+sd_bg1 <- rep(50, n.notpwA) #sd of background (not pw A) 1 and 2
+sd_bg2=rep(50, n.notpwA)
+mu_bg1=rep(1000, n.notpwA) #mean of background (not pw A) 1 and 2 = 1000
+mu_bg2=rep(1000, n.notpwA)
+random_matrix.bg=matrix(rnorm(n.notpwA * n.notpwA), nrow = n.notpwA)
+R <- cov2cor(crossprod(random_matrix.bg))
+
+D.bg1 <- diag(sd_bg1)
+D.bg2 <-diag(sd_bg2)
+
+Sigma.bg1 <- D.bg1 %*% R %*% D.bg1
+Sigma.bg2 <- D.bg2 %*% R %*% D.bg2
+
+#mu.case = mu.ctrl
+ncorr_bg1 <- mvrnorm(n=sctrl, mu=mu_bg1, Sigma=Sigma.bg1) %>% as.data.frame()
+ncorr_bg2<- mvrnorm(n=scase, mu=mu_bg2, Sigma=Sigma.bg2) %>% as.data.frame()
+
+ncorr_bg=ncorr_bg1 %>% rbind(ncorr_bg2)
+
+colnames(ncorr_bg) <- paste0("BG", seq(ncol(ncorr_bg)))
+rownames(ncorr_bg) <- paste0("S", seq(nrow(ncorr_bg)))
+
+#combine pthay A and nonpwA
+final.df.sm3=pathwayA.df.sm3 %>% cbind(ncorr_bg)
+
+#------------z-score:
+metadata.sm3=data.frame(
+  Disease=append(rep(c("control"),sctrl),rep(c("case"),scase)),
+  Drug=rep(c("yes"),stotal),
+  BMI=runif(stotal, min=15, max=50))
+
+#------------t-test and apply p-val cutoff:
+t.test.sm3 <- apply(final.df.sm3, 2, function(x) {
+  t_test <- t.test(x ~ metadata.sm3$Disease )  # Perform t-test
+  logFC <- log2(mean(x[metadata.sm3$Disease  == "case"]) / mean(x[metadata.sm3$Disease == "control"])) 
+  return(c(t_test$p.value, logFC))})# Return log2 fold change, and pvalue of ttest
+
+results_ttest.sm3 <- as.data.frame(t(t.test.sm3)) %>% 
+  rownames_to_column(var="gene") %>%
+  rename("p_value"=c(3), "logFC"=c(2)) #inputs for ORA and GSEA
+
+ora.input_sm3=results_ttest.sm3 %>% filter(p_value <= 0.05)
+
+#------------ORA:
+ref_pwayA=kototal #number of genes in pathway A (defined by ref.db) - equal to the number of kototal
+ref_not_pwayA=n.notpwA #number of genes not in pathway A (defined by ref. db)
+
+pwayA_DEG=ora.input_sm3 %>% filter(grepl("KO", gene)) %>% nrow(.) #number of genes in DEG, and in pathway A (a)
+not.pwayA_DEG=ora.input_sm3 %>% filter(!grepl("KO", gene)) %>% nrow(.) #number of genes in DEG, and NOT in pathway A (b)
+
+pwayA_not.DEG=ref_pwayA - pwayA_DEG #number of genes NOT in DEG, and in pathway A (c)
+not.pwayA_not.DEG=ref_not_pwayA - not.pwayA_DEG #number of genes NOT in DEG, and NOT in pathway A (d)
+
+#------------put a,b,c,d into a data frame + apply fisher's test:
+cont.tbl.sm3_ora=data.frame(
+  in_pathwayA = c(pwayA_DEG, pwayA_not.DEG),
+  not_in_pathwayA = c(not.pwayA_DEG, not.pwayA_not.DEG),
+  row.names = c("in DEG", "not in DEG")
+)
+ora.result_sm3 <- fisher.test(as.matrix(cont.tbl.sm3_ora)) 
+
+#------------summary of ORA test:
+ora.summary_sm3=data.frame(total.input_sm3=nrow(ora.input_sm3),
+                           pwayA_DEG=pwayA_DEG,
+                           pval=ora.result_sm3$p.value,
+                           or=ora.result_sm3$estimate,
+                           ci_low=ora.result_sm3$conf.int[[1]],
+                           ci_high=ora.result_sm3$conf.int[[2]])
+print(ora.summary_sm3)
