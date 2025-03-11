@@ -1,5 +1,5 @@
 ---
-title: "aim2_compositional_changes"
+title: "aim2_compositional"
 output: html_document
 date: "2025-02-04"
 ---
@@ -12,208 +12,27 @@ library(vegan)
 library(ComplexHeatmap)
 library(circlize)
 library(rio)
-library(vegan)
 library(dplyr)
 library(janitor)
 library(ape)
 library(readxl)
 library(edgeR)
 library(pairwiseAdonis)
+library(clusterProfiler)
+library(KEGGREST)
 
-#--------------------------------------------------------simulated data:
-#I need to redo every single shit wtf? this section is for testing how the patterns move in PERMANOVA -- just generating data + apply permanova (look at f-stat, pvalue) + ordination (PCA on distance matrix)
-#1: conflicting results in 1 sample group (both increase and decrease within case, compared to ctrl)
-#2: shared gene (gene that is being shared by >2 or 3 pathways) (what if 1 pathway increase, and another pathway decrease)
-#3: compositional changes (sub-unit functional changes in a large pathway)
-M00173 <- read.delim("Downloads/M00173", sep="_", header=T)[-1,] %>% 
-  rename("gene_name"=c(1), "ID"=c(2)) %>% 
-  distinct(gene_name)
-M00375 <- read.delim("Downloads/M00375", sep="_", header=T)[-1,] %>%
-  rename("gene_name"=c(1), "ID"=c(2)) %>% 
-  distinct(gene_name)
-M00374 <- read.delim("Downloads/M00374", sep="_", header=T)[-1,] %>% 
-  rename("gene_name"=c(1), "ID"=c(2)) %>% 
-  distinct(gene_name)
-M00376 <- read.delim("Downloads/M00376", sep="_", header=T)[-1,] %>% 
-  rename("gene_name"=c(1), "ID"=c(2)) %>% 
-  distinct(gene_name)
-M00377 <- read.delim("Downloads/M00377", sep="_", header=T)[-1,] %>%
-  rename("gene_name"=c(1), "ID"=c(2)) %>% 
-  distinct(gene_name)
-M00579 <- read.delim("Downloads/M00579", sep="_", header=T)[-1,] %>%
-  rename("gene_name"=c(1), "ID"=c(2)) %>% 
-  distinct(gene_name)
-M00620 <- read.delim("Downloads/M0062", sep="_", header=T)[-1,] %>%
-  rename("gene_name"=c(1), "ID"=c(2)) %>% 
-  distinct(gene_name)
-M00007 <- read_excel("Downloads/M00007.xlsx") %>%
-  rename("gene_name"=c(1), "ID"=c(2)) %>% distinct(gene_name)
-M00009 <- read_excel("Downloads/M00009.xlsx") %>% 
-  rename("gene_name"=c(1), "ID"=c(2)) %>% 
-  distinct(gene_name)
-M00307 <- read_excel("Downloads/M00307.xlsx") %>%
-  rename("gene_name"=c(1), "ID"=c(2)) %>% 
-  distinct(gene_name)
-
-#----pathway B and C are the two controls
-#------------pathway B - (0% case = control, 100% case > control)
-all_sm3_B=rbind(up_sm3_A, down_sm3_A) 
-set.seed(123)
-#95 KO increase in case
-ctrl_B <- list()
-case_B <- list()
-all_B<- list()
-for (i in 1:95) {
-  ctrl_B[[i]] <- rnorm(n=10, mean=500, sd=50)
-  case_B[[i]] <- rnorm(n=10, mean=1000, sd=50)
-  all_B[[i]]=append(ctrl_B[[i]],case_B[[i]])
-}
-all_B_rbind=lapply(seq_along(all_B), function(x) do.call(rbind.data.frame, list(all_B[[x]])))
-for (i in seq_along(all_B_rbind)) {
-  colnames(all_B_rbind[[i]]) <- paste0("S", seq(1, 20)) #S1-10: control
-}
-all_B_sm3=cbind(all_sm3_B, bind_rows(all_B_rbind))
-
-#------------pathway C: (100% case = control, 0% case > control):
-all_sm3_C=rbind(up_sm3_A, down_sm3_A) 
-all_C<- list()
-for (i in 1:95) {
-  all_C[[i]] <- rnorm(n=20, mean=1000, sd=50)
-}
-all_C_rbind=lapply(seq_along(all_C), function(x) do.call(rbind.data.frame, list(all_C[[x]])))
-for (i in seq_along(all_C_rbind)) {
-  colnames(all_C_rbind[[i]]) <- paste0("S", seq(1, 20)) #S1-10: control
-}
-all_C_sm3=cbind(all_sm3_C, bind_rows(all_C_rbind))
-
-#apply permanova on pathway A, B and C separately first - to see how patterns are different:
-#------------z-score on A separately: --should i run it without z-score (just to show Darryl?)
-all_A_sm3_stand=apply(all_A_sm3[,-1], 1, function(x) (x - mean(x)) / sd(x)) %>%
-  data.frame() %>% 
-  rbind(all_A_sm3[,1],.) %>% 
-  row_to_names(row_number=1) 
-
-#------------eucledian dist of A:
-dist_A_sm3=as.matrix(dist(all_A_sm3_stand, method = "euclidean"))
-sm_group=factor(append(rep(c("control"),10), rep(c("case"),10)))
-
-#------------permanova on A:
-adonis_A_sm3=adonis2(dist_A_sm3 ~ sm_group, permutations=999)
-adonis_A_sm3_posthoc=pairwise.adonis(dist_A_sm3, sm_group)
-
-#------------Ordination, including PCA (on standardized data) and heatmap (to see case or control is more enriched):
-all_A_sm3.num=data.frame(lapply(all_A_sm3_stand, as.numeric), row.names = rownames(all_A_sm3_stand))
-pca_A_sm3 <- prcomp(all_A_sm3.num, center = TRUE, scale. = TRUE)
-summary(pca_A_sm3)
-pc_scor_A_sm3 <- pca_A_sm3$x
-pca_data_A_sm3 <- data.frame(Sample = rownames(pc_scor_A_sm3), PC1 = pc_scor_A_sm3[,1], PC2 = pc_scor_A_sm3[,2])
-ggplot(pca_data_A_sm3, aes(x = PC1, y = PC2, label = Sample)) +
-  geom_point(size = 3, color = "blue") +  # Points
-  geom_text(vjust = -1, hjust = 1) +  # Labels
-  labs(title = "PCA Plot (Principal Coordinates)", x = "PC1", y = "PC2") +
-  theme_minimal()
-
-#------------Heatmap is good to see which one is increased and which one is decrease (hierarchical clustering)
-pheatmap(all_A_sm3.num, 
-         clustering_distance_rows = "euclidean",  # Clustering distance for rows
-         clustering_distance_cols = "euclidean",  # Clustering distance for columns
-         clustering_method = "average",  # Clustering method
-         scale = "none",  # Data is already standardized
-         color = colorRampPalette(c("blue", "white", "red"))(50),  # Color gradient
-         main = "Heatmap of Standardized Data")
-
-pheatmap(all_A_sm3.num, 
-         cluster_rows = FALSE,   # Disable row clustering
-         cluster_cols = FALSE,   # Disable column clustering
-         color = colorRampPalette(c("blue", "white", "red"))(50),  # Custom color scale
-         main = "Heatmap Without Clustering")
-
-#------------z-score on B separately:
-all_B_sm3_stand=apply(all_B_sm3[,-1], 1, function(x) (x - mean(x)) / sd(x)) %>%
-  data.frame() %>% 
-  rbind(all_B_sm3[,1],.) %>% 
-  row_to_names(row_number=1) 
-
-#------------euclidean dist of B:
-dist_B_sm3=as.matrix(dist(all_B_sm3_stand, method = "euclidean"))
-
-#------------permanova on B:
-adonis_B_sm3=adonis2(dist_B_sm3 ~ sm_group, permutations=999) 
-adonis_B_sm3_posthoc=pairwise.adonis(dist_B_sm3, sm_group)
-
-#------------Ordination, including PCA (on standardized data) and heatmap (to see case or control is more enriched):
-all_B_sm3.num=data.frame(lapply(all_B_sm3_stand, as.numeric), row.names = rownames(all_B_sm3_stand))
-pca_B_sm3 <- prcomp(all_A_sm3.num, center = TRUE, scale. = TRUE)
-summary(pca_B_sm3)
-pc_scor_B_sm3 <- pca_B_sm3$x
-pca_data_B_sm3 <- data.frame(Sample = rownames(pc_scor_B_sm3), PC1 = pc_scor_B_sm3[,1], PC2 = pc_scor_B_sm3[,2])
-ggplot(pca_data_B_sm3, aes(x = PC1, y = PC2, label = Sample)) +
-  geom_point(size = 3, color = "blue") +  # Points
-  geom_text(vjust = -1, hjust = 1) +  # Labels
-  labs(title = "PCA Plot (Principal Coordinates)", x = "PC1", y = "PC2") +
-  theme_minimal()
-
-#------------Heatmap is good to see which one is increased and which one is decrease (hierarchical clustering)
-pheatmap(all_B_sm3.num, 
-         clustering_distance_rows = "euclidean",  # Clustering distance for rows
-         clustering_distance_cols = "euclidean",  # Clustering distance for columns
-         clustering_method = "average",  # Clustering method
-         scale = "none",  # Data is already standardized
-         color = colorRampPalette(c("blue", "white", "red"))(50),  # Color gradient
-         main = "Heatmap of Standardized Data")
-
-pheatmap(all_A_sm3.num, 
-         cluster_rows = FALSE,   # Disable row clustering
-         cluster_cols = FALSE,   # Disable column clustering
-         color = colorRampPalette(c("blue", "white", "red"))(50),  # Custom color scale
-         main = "Heatmap Without Clustering")
-
-#------------z-score on C separately:
-all_C_sm3_stand=apply(all_C_sm3[,-1], 1, function(x) (x - mean(x)) / sd(x)) %>%
-  data.frame() %>% 
-  rbind(all_C_sm3[,1],.) %>% 
-  row_to_names(row_number=1) 
-
-#------------euclidean dist of C:
-dist_C_sm3=as.matrix(dist(all_C_sm3_stand, method = "euclidean"))
-
-#------------permanova on C:
-adonis_C_sm3=adonis2(dist_C_sm3 ~ sm_group, permutations=999) 
-adonis_C_sm3_posthoc=pairwise.adonis(dist_C_sm3, sm_group)
-
-#------------Ordination, including PCA (on standardized data) and heatmap (to see case or control is more enriched):
-all_C_sm3.num=data.frame(lapply(all_C_sm3_stand, as.numeric), row.names = rownames(all_C_sm3_stand))
-pca_C_sm3 <- prcomp(all_C_sm3.num, center = TRUE, scale. = TRUE)
-summary(pca_C_sm3)
-pc_scor_C_sm3 <- pca_C_sm3$x
-pca_data_C_sm3 <- data.frame(Sample = rownames(pc_scor_C_sm3), PC1 = pc_scor_C_sm3[,1], PC2 = pc_scor_C_sm3[,2])
-ggplot(pca_data_C_sm3, aes(x = PC1, y = PC2, label = Sample)) +
-  geom_point(size = 3, color = "blue") +  # Points
-  geom_text(vjust = -1, hjust = 1) +  # Labels
-  labs(title = "PCA Plot (Principal Coordinates)", x = "PC1", y = "PC2") +
-  theme_minimal()
-
-pheatmap(all_C_sm3.num, 
-         clustering_distance_rows = "euclidean",  # Clustering distance for rows
-         clustering_distance_cols = "euclidean",  # Clustering distance for columns
-         clustering_method = "average",  # Clustering method
-         scale = "none",  # Data is already standardized
-         color = colorRampPalette(c("blue", "white", "red"))(50),  # Color gradient
-         main = "Heatmap of Standardized Data")
-
-pheatmap(all_C_sm3.num, 
-         cluster_rows = FALSE,   # Disable row clustering
-         cluster_cols = FALSE,   # Disable column clustering
-         color = colorRampPalette(c("blue", "white", "red"))(50),  # Custom color scale
-         main = "Heatmap Without Clustering")
-#edit all gene_names a little bit and then apply permanova on A,B,C together to see if they still work:
-
-#-------AUTOMATION-just need to enter the number of samples, number of
+#-------NON-CONFLICTING-balanced
 #-------gene number and number of cases where case=control
-#call the number of case = control: nequal (0 < nequal < 95)
-stotal=100 #input number of total samples (sample sizes b/w groups need to be equal)
+#----possible input:
+set.seed=123
+stotal=100 #number of total samples (sample sizes b/w groups need to be equal)
+scase=60
+sctrl
 kototal=1000 #number of total KOs
-nequal=950 #number of KOs we want to be equal (it has to be larger than 0)
+nequal=750 #number of KOs we want to be equal (it has to be larger than 0, choose from this list)
+mu.differ=0 #try out different threshold: from 2 (small) to 20 (medium - still sig. for permanova) to 200 (large)
+mu.case=1000 #this may be fixed
+#-----
 all_equal<- list()
 for (i in 1:nequal) {
   all_equal[[i]] <- rnorm(n=stotal, mean=1000, sd=50)
@@ -225,8 +44,6 @@ rownames(df_equal) <- paste0("S", seq_len(nrow(df_equal)))
 #call the number of case > control: nup (nup=95-nequal)
 #call the difference between case and control: mu.case - mu.ctrl (aka-ES)
 nup=kototal-nequal
-mu.case=1000 #this may be fixed
-mu.differ=20 #try out different threshold: from 2 (small) to 20 (medium - still sig. for permanova) to 200 (large)
 case<-list()
 ctrl<-list()
 all_up<-list()
@@ -248,13 +65,16 @@ metadata.sm3=data.frame(
   Disease=append(rep(c("control"),stotal/2),rep(c("case"),stotal/2)),
   Drug=rep(c("yes"),stotal),
   BMI=runif(stotal, min=15, max=50))
-  
+
 #------------euclidean dis:
 dist_sm3=as.matrix(dist(z.final.sm3, method = "euclidean")) 
 
 #------------permanova:
-adonis_sm3=adonis2(dist_sm3 ~ Disease, metadata.sm3, permutations=999) # ~ can try different covariates to test for significance
+adonis_sm3=adonis2(dist_sm3 ~ Disease, metadata.sm3, permutations=100000, p.adjust.method="fdr") # ~ can try different covariates to test for significance
+adonis_sm3.df <- as.data.frame(adonis_sm3) %>% mutate(significance=ifelse(`Pr(>F)`< 0.05, "yes","no"))
+print(adonis_sm3.df)
 
+#------------
 #------------Ordination, including PCA (on standardized data) and heatmap (to see case or control is more enriched):
 pca_sm3 <- prcomp(z.final.sm3, center = F, scale. = F)
 summary(pca_sm3)
@@ -263,10 +83,10 @@ pca_data_sm3 <- data.frame(Sample = rownames(z.final.sm3),
                            Disease = metadata.sm3$Disease,
                            PC1 = pc_scor_sm3[,1], 
                            PC2 = pc_scor_sm3[,2])
-ggplot(pca_data_sm3, aes(x = PC1, y = PC2, label = Sample, color=Disease)) +
-  geom_point(size = 2, color = "black") +  # Points
-  geom_text(vjust = -1, hjust = 1) +  # Labels
+ggplot(pca_data_sm3, aes(x = PC1, y = PC2, color= Disease)) +
+  geom_point(size = 2) +  # Labels
   labs(title = paste("PCA Plot with Simulated Effect Size:", mu.differ),x = "PC1", y = "PC2") +
+  scale_color_manual(values = c(case = "red", control = "blue"))+
   theme_minimal()
 
 #------------heatmap on eucleadian hierachical clustering
@@ -285,9 +105,304 @@ pheatmap(z.final.sm3,
          color = colorRampPalette(c("blue", "white", "red"))(50),  # Custom color scale
          main = paste("Heatmap on Standardized Data (without distance cluster) with Effect Size:", mu.differ))
 
-#--------------------------------------------------------real MIDAS data:
+
+##########################################
+#-------------Edit pipeline for unbalanced design:
+nequal_list=list(20,150,250,350,450,550,560,750,950,980) #10 thresholds (unchanged KOs increase and permanova less sig.)
+mu.diff_list=list(2,5,10,20,30,40,50,60,70,95) #10 thresholds (increase ES permanova will more sig.)
+stotal_list=list(6,10,20,50,80,100,300,500,700,800,1000) #10 threshold
+stotal=100 
+
+#----possible input:
+set.seed=123
+#number of total samples (sample sizes b/w groups need to be equal)
+scase=50
+sctrl=50
+kototal=1000 #number of total KOs
+nequal=50 #number of KOs we want to be equal (it has to be larger than 0, choose from this list)
+mu.differ=20 #try out different threshold: from 2 (small) to 20 (medium - still sig. for permanova) to 200 (large)
+mu.case=1000 #this may be fixed
+
+#-----
+case_equal<-list()
+ctrl_equal<-list()
+all_equal<- list()
+for (i in 1:nequal) {
+  ctrl_equal[[i]] <- rnorm(n=sctrl, mean=1000, sd=30)
+  case_equal[[i]] <- rnorm(n=scase, mean=1000, sd=70)
+  all_equal[[i]]=append(ctrl_equal[[i]],case_equal[[i]])
+}
+df_equal=data.frame(all_equal)
+colnames(df_equal) <- paste0("KO", seq_len(ncol(df_equal)))
+rownames(df_equal) <- paste0("S", seq_len(nrow(df_equal)))
+
+#call the difference between case and control: mu.case - mu.ctrl (aka-ES)
+nup=kototal-nequal
+case<-list()
+ctrl<-list()
+all_up<-list()
+for (i in 1:nup) {
+  ctrl[[i]] <- rnorm(n=sctrl, mean=mu.case-mu.differ, sd=30)
+  case[[i]] <- rnorm(n=scase, mean=mu.case, sd=70)
+  all_up[[i]]=append(ctrl[[i]],case[[i]])
+}
+df_up=data.frame(all_up)
+ncol(df_up)
+colnames(df_up) <- paste0("KO", seq(ncol(df_equal)+1,kototal))
+rownames(df_up) <- paste0("S", seq_len(nrow(df_up)))
+
+#merge change and the unchanged:
+final.df.sm3=df_equal %>% cbind(df_up)
+
+########################################
+#------------z-score:
+z.final.sm3=data.frame(scale(final.df.sm3))
+metadata.sm3=data.frame(
+  Disease=append(rep(c("control"),sctrl),rep(c("case"),scase)),
+  Drug=rep(c("yes"),100),
+  BMI=runif(100, min=15, max=50))
+  
+#------------euclidean dis:
+dist_sm3=as.matrix(dist(z.final.sm3, method = "euclidean")) 
+
+#------------permanova:
+adonis_sm3=adonis2(dist_sm3 ~ Disease, metadata.sm3, permutations=100000,p.adjust.method="fdr") # ~ can try different covariates to test for significance
+adonis_sm3.df <- as.data.frame(adonis_sm3) %>% mutate(significance=ifelse(`Pr(>F)`< 0.05, "yes","no"))
+#------------
+#------------Ordination, including PCA (on standardized data) and heatmap (to see case or control is more enriched):
+pca_sm3 <- prcomp(z.final.sm3, center = F, scale. = F)
+summary(pca_sm3)
+pc_scor_sm3 <- pca_sm3$x
+pca_data_sm3 <- data.frame(Sample = rownames(z.final.sm3),
+                           Disease = metadata.sm3$Disease,
+                           PC1 = pc_scor_sm3[,1], 
+                           PC2 = pc_scor_sm3[,2])
+ggplot(pca_data_sm3, aes(x = PC1, y = PC2, color= Disease)) +
+  geom_point(size = 2) +  # Labels
+  labs(title = paste("PCA Plot with Simulated Effect Size:", mu.differ),x = "PC1", y = "PC2") +
+  scale_color_manual(values = c(case = "red", control = "blue"))+
+  theme_minimal()
+
+#------------heatmap on eucleadian hierachical clustering
+pheatmap(z.final.sm3, 
+         clustering_distance_rows = "euclidean",  # Clustering distance for rows
+         clustering_distance_cols = "euclidean",  # Clustering distance for columns
+         clustering_method = "average",  # Clustering method
+         scale="none",  # Data is already standardized
+         color = colorRampPalette(c("blue", "white", "red"))(50),  # Color gradient
+         main = paste("Heatmap of Euclidean-based Standardized Data with Effect Size:", mu.differ))
+
+#------------heatmap directly on standardized data:
+pheatmap(z.final.sm3, 
+         cluster_rows = FALSE,   # Disable row clustering
+         cluster_cols = FALSE,   # Disable column clustering
+         color = colorRampPalette(c("blue", "white", "red"))(50),  # Custom color scale
+         main = paste("Heatmap on Standardized Data (without distance cluster) with Effect Size:", mu.differ))
+
+#########################################
+#--------FOR CONFLICTING SIGNALS:
+#-------gene number and number of cases where case=control
+#----possible input:
+set.seed=123
+stotal=100 #number of total samples (sample sizes b/w groups need to be equal)
+kototal=1000 #number of total KOs
+nequal=50 #number of KOs we want to be equal (it has to be larger than 0, choose from this list)
+mu.differ=0 #try out different threshold (for both nup and ndown)
+scase=30
+sctrl=70
+nconf=round((kototal-nequal)/2)
+mu.ctr_up=1000 #mu in control (when case goes up)
+mu.case_up=mu.ctr_up+mu.differ #case > ctr
+mu.ctr_down=1000 #case < ctr
+mu.case_down=mu.ctr_down-mu.differ
+
+#-----equal proportion (case=ctrl)
+all_equal<- list()
+ctrl_equal<-list()
+case_equal<-list()
+for (i in 1:nequal) {
+  ctrl_equal[[i]] <- rnorm(n=sctrl, mean=1000, sd=50)
+  case_equal[[i]]<- rnorm(n=scase, mean=1000, sd=50)
+  all_equal[[i]] <- append(ctrl_equal[[i]],case_equal[[i]])
+}
+df_equal=data.frame(all_equal)
+
+#-------conflicting (some KOs are increased while the other KOs are decreased)
+case_up_conf<-list()
+ctrl_up_conf<-list()
+all_up_conf<-list()
+case_down_conf<-list()
+ctrl_down_conf<-list()
+all_down_conf<-list()
+all_ctrl_conf<-list()
+all_case_conf<-list()
+
+for (i in 1:nconf) {
+  ctrl_up_conf[[i]] <- rnorm(n=sctrl, mean=mu.case-mu.differ, sd=50)
+  case_up_conf[[i]] <- rnorm(n=scase, mean=mu.case, sd=50)
+  all_up_conf[[i]]=append(ctrl_up_conf[[i]],case_up_conf[[i]])
+}
+df.conf.up=data.frame(all_up_conf)
+
+for (i in 1:nconf) {
+  ctrl_down_conf[[i]] <- rnorm(n=sctrl, mean=mu.case-mu.differ, sd=50)
+  case_down_conf[[i]] <- rnorm(n=scase, mean=mu.case, sd=50)
+  all_down_conf[[i]]=append(ctrl_down_conf[[i]],case_down_conf[[i]])
+}
+df.conf.down=data.frame(all_down_conf)
+
+final.df.sm3_conf=cbind(df_equal,df.conf.up,df.conf.down)
+colnames(final.df.sm3_conf) <- paste0("KO", seq_len(ncol(final.df.sm3_conf)))
+rownames(final.df.sm3_conf) <- paste0("S", seq_len(nrow(final.df.sm3_conf)))
+
+#------------z-score:
+z.final.sm3_conf=data.frame(scale(final.df.sm3_conf))
+metadata.sm3_conf=data.frame(
+  Disease=append(rep(c("control"),sctrl),rep(c("case"),scase)), #change stotal/2 into scase or sctrl if needed
+  Drug=rep(c("yes"),stotal),
+  BMI=runif(stotal, min=15, max=50))
+  
+#------------euclidean dis:
+dist_sm3_conf=as.matrix(dist(z.final.sm3_conf, method = "euclidean")) 
+
+#------------permanova:
+adonis_sm3_conf=adonis2(dist_sm3_conf ~ Disease, metadata.sm3_conf, permutations=100000, p.adjust.method="fdr") # ~ can try different covariates to test for significance
+adonis_sm3.df_conf <- as.data.frame(adonis_sm3_conf) %>% mutate(significance=ifelse(`Pr(>F)`< 0.05, "yes","no"))
+print(adonis_sm3.df_conf)
+#------------
+#------------Ordination, including PCA (on standardized data) and heatmap (to see case or control is more enriched):
+pca_sm3_conf <- prcomp(z.final.sm3_conf, center = F, scale. = F)
+summary(pca_sm3_conf)
+pc_scor_sm3_conf <- pca_sm3_conf$x
+pca_data_sm3_conf <- data.frame(Sample = rownames(z.final.sm3_conf),
+                           Disease = metadata.sm3_conf$Disease,
+                           PC1 = pc_scor_sm3_conf[,1], 
+                           PC2 = pc_scor_sm3_conf[,2])
+
+ggplot(pca_data_sm3_conf, aes(x = PC1, y = PC2, color= Disease)) +
+  geom_point(size = 2) +  # Labels
+  labs(title = paste("PCA Plot with Conflicting Signals and Simulated Effect Size:", mu.differ),x = "PC1", y = "PC2") +
+  scale_color_manual(values = c(case = "red", control = "blue"))+
+  theme_minimal()
+
+#------------heatmap on eucleadian hierachical clustering
+pheatmap(z.final.sm3_conf, 
+         clustering_distance_rows = "euclidean",  # Clustering distance for rows
+         clustering_distance_cols = "euclidean",  # Clustering distance for columns
+         clustering_method = "average",  # Clustering method
+         scale="none",  # Data is already standardized
+         color = colorRampPalette(c("blue", "white", "red"))(50),  # Color gradient
+         main = paste("Heatmap of Euclidean-based Standardized Data with Effect Size:", mu.differ))
+
+#------------heatmap directly on standardized data:
+pheatmap(z.final.sm3_conf, 
+         cluster_rows = FALSE,   # Disable row clustering
+         cluster_cols = FALSE,   # Disable column clustering
+         color = colorRampPalette(c("blue", "white", "red"))(50),  # Custom color scale
+         main = paste("Heatmap on Standardized Data (without distance cluster) with Effect Size:", mu.differ))
+
+
+#-------------------------------------------------------
+#--------------------------------------------------------real MIDAS data:--look into the first 13 species (over 800 species in total to run)
+#input dataset
+folder_path <- "~/Desktop/genes_testing"
+all.folder=list.dirs(path="~/Desktop/genes_testing")
+lz4_files <- list.files(path = all.folder, pattern = "\\.genes_presabs.tsv.lz4$", full.names = TRUE)
+read_lz4_file <- function(file_path) {
+  decompressed_file <- tempfile(fileext = ".tsv")
+  system2("lz4", args = c("-d", file_path, decompressed_file), stdout = TRUE, stderr = TRUE)
+  data <- read_tsv(decompressed_file)
+  unlink(decompressed_file)
+  return(data)
+}
+midas.presab_test.species <- lapply(lz4_files, read_lz4_file)
+saveRDS(midas.presab_test.species, "midas.presab_test.species.rds")
+
+#save for later:
+midas.presab_test.species <- readRDS("midas.presab_test.species.rds")
+
+#match the species ID with dataframe:
+files_species_name <- list.files(path = all.folder, pattern = "\\.genes_presabs.tsv.lz4$", full.names = TRUE) %>% substr(., 39, 44)
+names(midas.presab_test.species)<-files_species_name
+midas.presab_test.species
+
+#obtain the case/ctrl info:
+md_aim2=metadata_phylo_file
+
+#------------------------analyze 1 species first - 100002:
+test.species=midas.presab_test.species[['100002']] 
+
+md_100002=md_aim2 %>% filter(Run %in% colnames(test.species[,-1])) 
+
+###############################Have list of gene ids in a column called "gene_id" and they should be formatted as GUT_GENOME######_#####
+phylo.lachno.hits=read.delim("~/Downloads/top_hits_ePD.tsv") %>% rename("gene_id"=c(1))
+Gut_Trans <- gsub("GUT_GENOME","", phylo.lachno.hits$gene_id) %>% gsub("_", "",.)
+prqt_uhgp_90 <- arrow::open_dataset("/Users/Nghitran/Desktop/UHGP_90_Le_gene.numbers", format = "parquet")
+
+all_genes_uhgp_90 <- prqt_uhgp_90 %>%
+  filter(gene_id %in% Gut_Trans) %>%
+  dplyr::collect() %>%
+  dplyr::select(-c(group)) %>%
+  rename(cluster_id_n = cluster_id)
+
+final_all_genes_uhgp_90 <- all_genes_uhgp_90 %>%
+  map_dfc(function(x) as.character(x)) %>%
+  map_dfc(function(x) str_pad(x, 11, "left", pad = "0"))
+
+Gut_Trans2 <- all_genes %>% as.tibble() %>% rename(gene_id = value) %>%
+  mutate("gene_id_n" = gsub("GUT_GENOME","", gene_id) %>%
+           gsub("_", "", .))
+
+UHGP_90_Le_genes <- final_all_genes_uhgp_90 %>% mutate("cluster_id" =
+                                                         gsub('^(.{6})(.*)$','GUT_GENOME\\1_\\2',
+                                                              final_all_genes_uhgp_90$cluster_id_n)) %>%
+  rename(gene_id_n = gene_id) %>%
+  left_join(Gut_Trans2, by = "gene_id_n")
+
+#################################generate metadata for the test:
+md_100002_fix=md_100002 %>%
+  mutate(Disease=ifelse(Status=="ND CTRL","control","case"),
+         Drug=ifelse(Status=="T2D metformin+","yes","no"))
+
+#---compute for jaccard distance:
+set.seed=123
+
+#try on all samples:
+species.test_non0=test.species[rowSums(test.species[,-1] != 0) > 0, ]
+full.100002=data.frame(t(species.test_non0)) %>% tail(80)
+full_numeric_100002 <- data.frame(lapply(full.100002, function(x) as.numeric(as.character(x))))
+
+#---permanova:
+dis_full.100002 <- vegdist(full_numeric_100002, method = "jaccard")
+adonis_midas.full=adonis2(as.matrix(dis_full.100002) ~ Disease, md_100002_fix, permutations=100000, p.adjust.method = "fdr")  # ~ can try different covariates to test for significance
+
+#------------Ordination, including PCoA (on standardized data) and heatmap (to see case or control is more enriched):
+pcoa_midas=cmdscale(as.matrix(dis_full.100002))
+pcoa_midas.df <- data.frame(Sample = colnames(species.test_non0[,-1]), 
+                      PC1 = pcoa_midas$vectors[,1], 
+                      PC2 = pcoa_midas$vectors[,2])
+
+ggplot(pca_data_sm3_conf, aes(x = PC1, y = PC2, color= Disease)) +
+  geom_point(size = 2) +  # Labels
+  labs(title = paste("PCA Plot with Conflicting Signals and Simulated Effect Size:", mu.differ),x = "PC1", y = "PC2") +
+  scale_color_manual(values = c(case = "red", control = "blue"))+
+  theme_minimal()
+
+#------------heatmap on eucleadian hierachical clustering
+pheatmap(z.final.sm3_conf, 
+         clustering_distance_rows = "euclidean",  # Clustering distance for rows
+         clustering_distance_cols = "euclidean",  # Clustering distance for columns
+         clustering_method = "average",  # Clustering method
+         scale="none",  # Data is already standardized
+         color = colorRampPalette(c("blue", "white", "red"))(50),  # Color gradient
+         main = paste("Heatmap of Euclidean-based Standardized Data with Effect Size:", mu.differ))
+
+#------------heatmap directly on standardized data:
+pheatmap(z.final.sm3_conf, 
+         cluster_rows = FALSE,   # Disable row clustering
+         cluster_cols = FALSE,   # Disable column clustering
+         color = colorRampPalette(c("blue", "white", "red"))(50),  # Custom color scale
+         main = paste("Heatmap on Standardized Data (without distance cluster) with Effect Size:", mu.differ))
 
 
 ```
-
-
