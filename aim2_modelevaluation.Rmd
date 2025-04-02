@@ -10,788 +10,306 @@ library(tidyverse)
 library(dplyr)
 library(ggplot2)
 library(gt)
-
-#-----------import excel file:
-summary.per <- read_excel("~/Downloads/aim2.xlsx", sheet = "Calculation.new")
-
-#######################################calculate for sensitivity, power and error
-#-----------calculate for FDR (when ES=0) 
-ng.pval=summary.per %>% filter(SM=="NC")
-fal.pos_ng.pval=ng.pval %>% filter(`p-value`<0.05) #false pos of ng.ctrl
-tru.neg_ng.pval=ng.pval %>% filter(`p-value`>=0.05) #true neg of ng.ctrl
-
-type1er_ng.pval=nrow(fal.pos_ng.pval)/(nrow(fal.pos_ng.pval)+nrow(tru.neg_ng.pval)) #0.01369863
-
-#-----------calculate for sensitivity and power for a range of ES
-#----for a wide range of pvals:
-all.es_non.ng=summary.per %>% filter(SM!="NC") #353 (all those that are not control)
-small.es=all.es_non.ng %>% filter(ES < 0.4) #182
-large.es=all.es_non.ng %>% filter(ES > 0.4) #45
-tru.pos_small=small.es %>% filter(`p-value`<0.05)
-fal.neg_small=small.es %>% filter(`p-value`>0.05)
-tru.pos_large=large.es %>% filter(`p-value`<0.05)
-fal.neg_large=large.es %>% filter(`p-value`>0.05)
-
-sensitivity.small=nrow(tru.pos_small)/(nrow(tru.pos_small)+nrow(fal.neg_small)) #0.8333333 
-sensitivity.large=nrow(tru.pos_large)/(nrow(tru.pos_large)+nrow(fal.neg_large)) #0.9555556
-
-
-#----choose ES=0.4 to look at:
-med.es=all.es_non.ng %>% filter(ES == 0.4) #126
-tru.pos_0.4=med.es %>% filter(`p-value`<0.05) #97
-fal.neg_0.4=med.es %>% filter(`p-value`>0.05) #29
-
-sensitivity.med=nrow(tru.pos_med)/(nrow(tru.pos_med) + nrow(fal.neg_med)) #0.7698413
-power.med=1-(nrow(fal.neg_0.4)/(nrow(fal.neg_0.4) + nrow(tru.pos_0.4))) #0.7698413
-
-#----choose ES=0.36212 to look at:
-es.036=all.es_non.ng %>% filter(ES == 0.36212) #13
-tru.pos_0.36=es.036 %>% filter(`p-value`<0.05) #9
-fal.neg_0.36=es.036 %>% filter(`p-value`>0.05) #4
-
-sensitivity.036=nrow(tru.pos_0.36)/(nrow(tru.pos_0.36) + nrow(fal.neg_0.36)) #0.6923077
-power.036=1-(nrow(fal.neg_0.36)/(nrow(fal.neg_0.36) + nrow(tru.pos_0.36))) #0.6923077
+library(broom)
+library(plotly)
+summary.per <- read_excel("~/Downloads/aim2.xlsx", sheet = "Calculation.new") %>% rename("ES"=c(1))
+summary.per <- read_excel("~/Downloads/aim2.xlsx", sheet = "Calculation.new") %>% rename("ES"=c(1))
 
 ################################################################----------------
-#---------plot sensitivity vs type 1 error: (using 17 different significant alpha thresholds)
-alpha_thres=list(0.00001,0.0009,0.004,0.005,0.006,0.008,0.01,0.02,0.03,0.05,0.1,0.2,0.375,0.5,0.6,0.8,0.9)
+#---------plot sensitivity vs type 1 error: (using 19 different significant alpha thresholds)
+alpha_thres=list(0,0.00001,0.0009,0.004,0.005,0.006,0.008,0.01,0.02,0.03,0.05,0.1,0.2,0.375,0.5,0.6,0.8,0.9,1)
 
 #---generate a function to calculate TPR:
 func.sensitivity=function(true.positive, false.negative) {
   return(true.positive/(true.positive+false.negative)) }
-
-#---apply a threshold on all effect-size levels (including negative ctrls as welll)
-all.es_positives=lapply(alpha_thres, function(x) summary.per %>% filter(`p-value`< x))
-all.es_negatives=lapply(alpha_thres, function(x) summary.per %>% filter(`p-value`>= x))
-
-all.es_tpr=mapply(func.sensitivity, 
-       lapply(all.es_positives, function(x) x %>% nrow(.)),
-       lapply(all.es_negatives, function(x) x %>% nrow(.)))
-
-#---sensitivity for all large, small, medium size ES: (since the AUC for all ES is not great)
-small.es_tpr=mapply(func.sensitivity, 
-       lapply(all.es_positives, function(x) x %>% filter(ES < 0.4) %>% nrow(.)),
-       lapply(all.es_negatives, function(x) x %>% filter(ES < 0.4) %>% nrow(.)))
-
-large.es_tpr=mapply(func.sensitivity, 
-       lapply(all.es_positives, function(x) x %>% filter(ES > 0.4) %>% nrow(.)),
-       lapply(all.es_negatives, function(x) x %>% filter(ES > 0.4) %>% nrow(.)))
-
-med.es_tpr=mapply(func.sensitivity, 
-       lapply(all.es_positives, function(x) x %>% filter(ES == 0.4) %>% nrow(.)),
-       lapply(all.es_negatives, function(x) x %>% filter(ES == 0.4) %>% nrow(.)))
-
 
 #---generate a function to calculate type 1 error:
 func.type1error=function(false.positive, true.negative) {
   return(false.positive/(false.positive+true.negative))
 }
 
-#---apply a threshold on all effect-size
-fpr=mapply(func.type1error, 
-           lapply(all.es_positives, function(x) x %>% filter(ES==0) %>% nrow(.)),
-           lapply(all.es_negatives, function(x) x %>% filter(ES==0) %>% nrow(.))) 
+#---apply functions on ES=0.4
+all_med=summary.per %>% filter(ES==0.4) 
+true.positive_med=lapply(alpha_thres, function(x) all_med %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.)) 
+false.positive_med=lapply(alpha_thres, function(x) all_med %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_med=lapply(alpha_thres, function(x) all_med %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_med=lapply(alpha_thres, function(x) all_med %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
 
-#---make a fdr vs tpr plot:-- since AUC is too low, calculate 3 med, large and small:
-fdr.tpr_all.es=data.frame(
-  tpr=all.es_tpr,
-  fpr=fpr,
-  es="all"
-)
- 
+#---apply functions on ES=0.8
+all_large=summary.per %>% filter(ES==0.8)
+true.positive_large=lapply(alpha_thres, function(x) all_large %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.)) 
+false.positive_large=lapply(alpha_thres, function(x) all_large %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_large=lapply(alpha_thres, function(x) all_large %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_large=lapply(alpha_thres, function(x) all_large %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#---apply functions on ES=0.2
+all_small=summary.per %>% filter(ES==0.2)
+true.positive_small=lapply(alpha_thres, function(x) all_small %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.)) 
+false.positive_small=lapply(alpha_thres, function(x) all_small %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_small=lapply(alpha_thres, function(x) all_small %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_small=lapply(alpha_thres, function(x) all_small %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#---apply functions on combined ES:
+true.positive_all=lapply(alpha_thres, function(x) summary.per %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.)) 
+false.positive_all=lapply(alpha_thres, function(x) summary.per %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_all=lapply(alpha_thres, function(x) summary.per %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_all=lapply(alpha_thres, function(x) summary.per %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#---calculate for fpr and tpr:
+fpr.med=mapply(func.type1error,
+               false.positive_med, true.negative_med)
+fpr.large=mapply(func.type1error,
+               false.positive_large, true.negative_large)
+fpr.small=mapply(func.type1error,
+               false.positive_small, true.negative_small)
+fpr.all=mapply(func.type1error,
+               false.positive_all, true.negative_all)
+
+tpr.med=mapply(func.sensitivity,
+               true.positive_med, false.negative_med)
+tpr.large=mapply(func.sensitivity,
+                 true.positive_large, false.negative_large)
+tpr.small=mapply(func.sensitivity,
+                 true.positive_small, false.negative_small)
+tpr.all=mapply(func.sensitivity,
+                 true.positive_all, false.negative_all)
+
+#make auc:
 fdr.tpr_small.es=data.frame(
-  tpr=small.es_tpr,
-  fpr=fpr,
-  es="small"
-)
-
+  tpr=tpr.small,
+  fpr=fpr.small,
+  es="small")
+  
 fdr.tpr_med.es=data.frame(
-  tpr=med.es_tpr,
-  fpr=fpr,
-  es="med"
-)
+  tpr=tpr.med,
+  fpr=fpr.med,
+  es="medium")
+
 fdr.tpr_large.es=data.frame(
-  tpr=large.es_tpr,
-  fpr=fpr,
-  es="large"
-)
+  tpr=tpr.large,
+  fpr=fpr.large,
+  es="large")
 
-#---Manual AUC Calculation (for three large, med, small and overall)
-auc=sum(diff(fdr.tpr_all.es$fpr) * (head(fdr.tpr_all.es$tpr, -1) + tail(fdr.tpr_all.es$tpr, -1)) / 2) #0.5963109
+fdr.tpr_all.es=data.frame(
+  tpr=tpr.all,
+  fpr=fpr.all,
+  es="all")
 
-auc_med=sum(diff(fdr.tpr_med.es$fpr) * (head(fdr.tpr_med.es$tpr, -1) + tail(fdr.tpr_med.es$tpr, -1)) / 2) #0.7539064
-auc_large=sum(diff(fdr.tpr_large.es$fpr)* (head(fdr.tpr_large.es$tpr, -1) + tail(fdr.tpr_large.es$tpr, -1)) / 2) #0.814003
-auc_small=sum(diff(fdr.tpr_small.es$fpr)* (head(fdr.tpr_small.es$tpr, -1) + tail(fdr.tpr_small.es$tpr, -1)) / 2) #auc_small
+#manual calculate for auc
+auc_med=sum(diff(fdr.tpr_med.es$fpr) * (head(fdr.tpr_med.es$tpr, -1) + tail(fdr.tpr_med.es$tpr, -1)) / 2) 
+auc_large=sum(diff(fdr.tpr_large.es$fpr)* (head(fdr.tpr_large.es$tpr, -1) + tail(fdr.tpr_large.es$tpr, -1)) / 2) 
+auc_small=sum(diff(fdr.tpr_small.es$fpr)* (head(fdr.tpr_small.es$tpr, -1) + tail(fdr.tpr_small.es$tpr, -1)) / 2) 
+auc_all=sum(diff(fdr.tpr_all.es$fpr) * (head(fdr.tpr_all.es$tpr, -1) + tail(fdr.tpr_all.es$tpr, -1)) / 2) 
 
-#---ROC plots:
-roc_df <- rbind(fdr.tpr_small.es, fdr.tpr_med.es, fdr.tpr_large.es,fdr.tpr_all.es)
+roc.df_1=rbind(fdr.tpr_large.es, fdr.tpr_small.es, fdr.tpr_med.es, fdr.tpr_all.es) %>% cbind(unlist(alpha_thres)) %>% mutate(alpha_lev=ifelse(alpha==0.05,"at 0.05","other"))
 
-ggplot(roc_df, aes(x=fpr, y=tpr, color=es)) +
-  geom_point(size=1.2) +
-  theme_minimal() +
-  labs(title="ROC for Different Effect Size", x="False Positive Rate", y="True Positive Rate") +
-  scale_color_manual(values=c("red", "blue", "green","orange")) +
+ggplot(roc.df_1, aes(x = fpr, y = tpr, color = es, shape = alpha_lev)) +
+  geom_point(size = 3, stroke=0.35) +  # Adjust point size and stroke for visibility
+  geom_line(aes(group = interaction(es, alpha_lev)), linewidth = 1) +  # Connect points with lines
+  scale_shape_manual(values = c(16, 1)) +
+  labs(title="AUC-ROC for Different Effect Size", x="False Positive Rate", y="True Positive Rate", size=3) +
+  scale_color_manual(values=c("#ac2e44", "#104176", "#f55724","#72ccae"))+
   geom_abline(slope = 1, intercept = 0, linetype="dashed") +
-  theme(legend.position="bottom") +
-  geom_path() +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  annotate("text", x = 0.6, y = 0.2,                          
-           label = paste("AUC (all ES) =", round(auc, 2)), 
-           color = "red", size = 5)
-
-#################################################################---------------
-#-------correlate to ID which is more of the es? R-sq or F-stat? using data with or without negative controls:
-#correlate ES with R-sq: - do it on non-negative control?
-with_neg_ctrl.Rsq=cor(summary.per$ES, summary.per$`R-sq`, method="pearson") 
-with_neg_ctrl.Fstat=cor(summary.per$ES, summary.per$`F-statistic`, method="pearson")
-
-without_neg_ctrl.Rsq=cor(all.es_non.ng$ES, all.es_non.ng$`R-sq`, method="pearson")
-without_neg_ctrl.Fstat=cor(all.es_non.ng$ES, all.es_non.ng$`F-statistic`, method="pearson")
-
-df.corr=t(data.frame(with_neg_ctrl.Rsq,with_neg_ctrl.Fstat,without_neg_ctrl.Rsq,without_neg_ctrl.Fstat)) %>% as.data.frame(.) %>%
-  rename("pearson_coeff"=c(1)) %>% 
-  rownames_to_column(var="correlation") %>%
-  mutate(parameter=ifelse(correlation=="with_neg_ctrl.Fstat"|correlation=="without_neg_ctrl.Fstat","f-statistic","r-square")) %>%
-  mutate(values=ifelse(correlation=="with_neg_ctrl.Rsq" | correlation=="with_neg_ctrl.Fstat","with negative controls","without negative controls"))
-
-ggplot(df.corr, aes(x = values, y = pearson_coeff, fill = parameter)) + 
-  geom_bar(stat = "identity", position = "dodge", width=0.3) +  # Grouped bars
-  theme_minimal() + 
-  theme(plot.title = element_text(hjust = 0.5)) +
-  labs(title = "Coeffiecients of Correlations with Effect Size ", x = "Group", y = "Pearson coefficients")  
-
-#-------scatter plot correlating ES and F-stat 
-df.all.es_f.stat=data.frame(
-  es=summary.per$ES,
-  f.stat=summary.per$`F-statistic`)
-
-lm.fstat_es <- lm(es ~ f.stat, data = df.all.es_f.stat)
-qval.fstat_es <- summary(lm.fstat_es)
-p_value <- qval.fstat_es$coefficients[2, 4]
-r.sq=summary(lm.fstat_es)$r.squared
-
-ggplot(df.all.es_f.stat, aes(x = f.stat, y = es )) +
-  geom_point() + 
-  labs(title = "Correlation of F-statistic vs Effect Size", 
-       x = "ES", 
-       y = "F-statistic") +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))+
-  geom_smooth(method = "lm", se = FALSE, color = "red", linetype = "solid") +
-  annotate("text", x = 17, y = 1, label = paste("p-value = ", 2.45e-40), color = "blue", size = 5) +
-  annotate("text", x = 17, y = 1.5, label = paste("R^2 = ", round(r.sq,3)), color = "blue", size = 5)
-
-#compare ORA and PERMANOVA regarding all metrics
-
-#################################################################---------------
-#-------how the number of sample size affects the models (correlate F-statistic and p-value with sample size) + compare with ORA/GSEA
-df.samplesize_all.es=data.frame(
-  sample.size=summary.per$`total sample size`,
-  f.stat=summary.per$`F-statistic`,
-  p.val=summary.per$`p-value`)
-
-lm.fstat_samplesize <- lm(sample.size ~ f.stat, data = df.samplesize_all.es)
-pval.fstat_ss <- summary(lm.fstat_samplesize)$coefficients[2, 4]
-r.sq_fstat.ss=summary(lm.fstat_samplesize)$r.squared
-
-lm.pval_samplesize <- lm(sample.size ~ p.val, data = df.samplesize_all.es)
-pval.pval_ss <- summary(lm.pval_samplesize)$coefficients[2, 4]
-r.sq_pval.ss=summary(lm.pval_samplesize)$r.squared
-
-ggplot(df.samplesize_all.es, aes(x = sample.size)) +
-  geom_point(aes(y = f.stat, color = "PERMANOVA f-statistic")) +
-  geom_smooth(aes(y = f.stat, color = "PERMANOVA f-statistic"), method = "lm", se = FALSE) +
-  geom_point(aes(y = p.val, color = "PERMANOVA p-value")) +
-  geom_smooth(aes(y = p.val, color = "PERMANOVA p-value"), method = "lm", se = FALSE) +
-  annotate("text", x = 755, y = 2, label = paste("R-sq = ", round(r.sq_pval.ss,2)) , color = "#01889F", size =4) + 
-  annotate("text", x = 755, y = 3, label = paste("p-value = ", round(pval.pval_ss,2) ), color = "#01889F", size =4) + 
-  annotate("text", x = 310, y= 7, label = paste("p-value = ", round(pval.fstat_ss,10)), color ="red", size = 4)+
-  annotate("text", x = 250, y = 6, label = paste("R-sq= ", round(r.sq_fstat.ss,2)), color = "red", size =4) + 
-  labs(title = "Correlation of Sample Size with F-statistic and p-values", x = "sample size", y = "", color = "variable") +
-  theme(plot.title = element_text(hjust = 0.5))+
-  theme_minimal()
-
-#-------how the number of sample size affects the models (correlate sensitivity with sample size in 7 levels of sample size): need more simulations here
-ss=list(summary.per %>% filter(`total sample size`< 50),
-        summary.per %>% filter(`total sample size` > 50 & `total sample size` <=100),
-        summary.per %>% filter(`total sample size` > 100 & `total sample size`<=300),
-        summary.per %>% filter(`total sample size` > 500 & `total sample size`<=700),
-        summary.per %>% filter(`total sample size` > 700 & `total sample size`<=900),
-        summary.per %>% filter(`total sample size` > 900 & `total sample size`<=1000))
-
-sensitivity.ss=lapply(ss, function(x) func.sensitivity(
-    nrow(filter(x, ES!=0 & `p-value`<0.05)),
-    nrow(filter(x, ES!=0 & `p-value`>=0.05))
-  ))
-
-df.ss.sensitivity=cbind(
-  data.frame(sensitivity = unlist(sensitivity.ss)),
-  data.frame(avg_ss=unlist(lapply(ss, function(x) mean(x$`total sample size`))))
-)
-
-lm.tpr_ss <- lm(avg_ss ~ sensitivity, data = df.ss.sensitivity)
-pval.tpr_ss <- summary(lm.tpr_ss)$coefficients[2, 4]
-r.sq_tpr_ss=summary(lm.tpr_ss)$r.squared
-coef_tpr_ss=coef(lm.tpr_ss)[2]
-
-#############################################################-------------------
-#-------how the number of conflicting genes affects the models (correlate F-statistic/p-value and # of conflicting genes) + compare non-conflicting's power/sensitivity/error with conflicting + compare with ORA/GSEA
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size=12)) +
+  annotate("text", x = 0.7, y = 0.5,                          
+           label = paste("AUC (all ES) =", round(auc_all, 2)), 
+           color = "#ac2e44", size = 4) +
+  annotate("text", x = 0.7, y = 0.4,                          
+           label = paste("AUC (ES=0.8) =", round(auc_large, 2)), 
+           color = "#104176", size = 4) +
+  annotate("text", x = 0.7, y = 0.3,                          
+           label = paste("AUC (ES=0.4) =", round(auc_med, 2)), 
+           color = "#f55724", size = 4) +
+  annotate("text", x = 0.7, y = 0.2,                          
+           label = paste("AUC (ES=0.2) =", round(auc_small, 2)), 
+           color = "#72ccae", size = 4) 
 
 
-#---CONFLICTING MODEL
-#---TPR and FPR calculation of CONFLICTING GENES only:
-#tpr
-all.es_pos_conf.gene=lapply(alpha_thres, function(x)  all.conf %>% filter(`p-value` < x)) #all positives (for all ES>0)
-all.es_neg_conf.gene=lapply(alpha_thres, function(x) all.conf %>% filter(`p-value` >= x)) #all negatives (for all ES>0)
-
-all.es_tpr_conf.gene=mapply(func.sensitivity, 
-       lapply(all.es_pos_conf.gene, function(x) x %>% filter(ES!=0) %>% nrow(.)),
-       lapply(all.es_neg_conf.gene, function(x) x %>% filter(ES!=0) %>% nrow(.)))
-
-all.es_fpr_conf.gene=mapply(func.type1error, 
-           lapply(all.es_pos_conf.gene, function(x) x %>% filter(ES==0) %>% nrow(.)),
-           lapply(all.es_neg_conf.gene, function(x) x %>% filter(ES==0) %>% nrow(.))) 
-
-fdr.tpr_conf.gene=data.frame(
-  tpr=all.es_tpr_conf.gene,
-  fpr=all.es_fpr_conf.gene,
-  group="conflicting"
-)
-#---Manual AUC Calculation (CONFLICTING GENES)
-auc_conf=sum(diff(fdr.tpr_conf.gene$fpr) * (head(fdr.tpr_conf.gene$tpr, -1) + tail(fdr.tpr_conf.gene$tpr, -1)) / 2) #0.907
-
-#---NON-CONFLICTING
-#---TPR and FPR calculation of NON-CONFLICTING GENES only:
-all.nonconf=summary.per %>% filter(`conflicting genes`==0) 
-
-#---TPR and FPR calculation of NON-CONFLICTING GENES only:
-all.es_pos_nonconf=lapply(alpha_thres, function(x)  all.nonconf %>% filter(`p-value` < x)) #all positives (for all ES beside ES=0)
-all.es_neg_nonconf=lapply(alpha_thres, function(x) all.nonconf %>% filter(`p-value` >= x)) #all negatives only
-
-all.es_tpr_nonconf=mapply(func.sensitivity, 
-       lapply(all.es_pos_nonconf, function(x) x %>% filter(ES!=0) %>% nrow(.)),
-       lapply(all.es_neg_nonconf, function(x) x %>% filter(ES!=0) %>% nrow(.)))
-
-all.es_fpr_nonconf=mapply(func.type1error, 
-           lapply(all.es_pos_nonconf, function(x) x %>% filter(ES==0) %>% nrow(.)),
-           lapply(all.es_neg_nonconf, function(x) x %>% filter(ES==0) %>% nrow(.))) 
-
-fdr.tpr_nonconf=data.frame(
-  tpr=all.es_tpr_nonconf,
-  fpr=all.es_fpr_nonconf,
-  group="non-conflicting"
-)
-
-#---TPR and FPR calculation of NON-CONFLICTING GENES only:
-auc_nonconf=sum(diff(fdr.tpr_nonconf$fpr) * (head(fdr.tpr_nonconf$tpr, -1) + tail(fdr.tpr_nonconf$tpr, -1)) / 2) #0.7088272
-
-#combined ROC AUC 
-fdr.tpr_conf.nonconf=rbind(fdr.tpr_conf.gene,fdr.tpr_nonconf)
-ggplot(fdr.tpr_conf.nonconf, aes(x=fpr, y=tpr, color=group)) +
-  geom_point(size=1.2) +
-  theme_minimal() +
-  labs(title="ROC Model for Conflicting vs Non-conflicting Signals", x="False Positive Rate", y="True Positive Rate") +
-  scale_color_manual(values=c("#ae282c", "#003366")) +
-  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
-  theme(legend.position="bottom") +
-  geom_path() +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  annotate("text", x = 0.25, y = 0.7,                          
-           label = paste("AUC conflicting =", round(auc_conf, 2)), 
-           color = "#ae282c", size = 4) +
-  annotate("text", x =0.25, y= 0.67 ,
-           label = paste("n =", nrow(filter(summary.per,`conflicting genes`!=0 & SM==1))),
-           color="#ae282c", size=4) +
-  annotate("text", x= 0.25, y=0.55,
-           label=paste("AUC nonconflicting =", round(auc_nonconf,2)),
-           color="#003366", size=4) +
-  annotate("text", x=0.25, y=0.52,
-           label=paste("n =", nrow(filter(summary.per, `conflicting genes`==0 & SM==1))),
-           color="#003366", size=4)
-
-#---Compare power, sensitivity and error conflicting vs non-conflicting (at ES med=0.4)
-med.conf=all.conf %>% filter(ES==0.4)
-med.conf.ctr=all.conf %>% filter(ES==0)
-med.nonconf=all.nonconf %>% filter(ES==0.4)
-med.nonconf.ctr=all.nonconf %>% filter(ES==0)
-
-conf.df=data.frame(
-  model="conflicting",
-  metric=c("TPR","FPR"),
-  value=rbind(func.sensitivity(nrow(filter(med.conf, `p-value`<0.05)), nrow(filter(med.conf, `p-value` >= 0.05))),fpr=func.type1error(nrow(filter(med.conf.ctr, `p-value`<0.05)),nrow(filter(med.conf.ctr, `p-value`>=0.05)))
-              )
-  )
   
-  
-nonconf.df=data.frame(
-  model="non-conflicting",
-  metric=c("TPR","FPR"),
-  value=rbind(func.sensitivity(nrow(filter(med.nonconf, `p-value`<0.05)), nrow(filter(med.nonconf, `p-value` >= 0.05))),
-              func.type1error(nrow(filter(med.nonconf.ctr, `p-value`<0.05)),nrow(filter(med.nonconf.ctr, `p-value`>=0.05)))      
-              )
-)
-
-med_nonconf.conf=rbind(conf.df, nonconf.df) 
-
-ggplot(med_nonconf.conf, aes(x = metric, y = value, fill = model)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
-  geom_text(aes(label = round(value, 2)), vjust = -0.5, position = position_dodge(0.7)) +
-  scale_fill_manual(values = c("#ae282c","#003366")) +  # Custom colors
-  labs(title = "Conflicting vs Non-conflicting Performance at Medium ES: Sensitivity & Error Rate",
-       x = "Metric",
-       y = "Value",
-       fill = "Model") +
-  theme_minimal()
-
-#-------how the number of conflicting gene affects the models (correlate sensitivity with conf.gene in 7 levels of sample size): need more simulations here
-conf=list(summary.per %>% filter(`conflicting genes`< 50),
-        summary.per %>% filter(`multi` > 50 & `conflicting genes` <=200),
-        summary.per %>% filter(`conflicting genes` > 200 & `conflicting genes`<=300),
-        summary.per %>% filter(`conflicting genes` > 300 & `conflicting genes`<=400),
-        summary.per %>% filter(`conflicting genes` > 400 & `conflicting genes`<=600),
-        summary.per %>% filter(`conflicting genes` > 600 & `conflicting genes`<=800),
-        summary.per %>% filter(`total sample size` > 800 & `conflicting genes`<=1000))
-
-sensitivity.conf=lapply(conf, function(x) func.sensitivity(
-    nrow(filter(x, ES!=0 & `p-value`<0.05)),
-    nrow(filter(x, ES!=0 & `p-value`>=0.05))
-  ))
-
-df.conf.sensitivity=cbind(
-  data.frame(sensitivity = unlist(sensitivity.conf)),
-  data.frame(avg_conf=unlist(lapply(conf, function(x) mean(x$`conflicting genes`))))
-)
-
-lm.tpr_conf <- lm(avg_conf ~ sensitivity, data = df.conf.sensitivity)
-pval.tpr_conf <- summary(lm.tpr_conf)$coefficients[2, 4]
-r.sq_tpr_conf=summary(lm.tpr_conf)$r.squared
-coef_tpr_conf=coef(lm.tpr_conf)[2]
-
-
-#############################################################--------------------
-#-------how the number of genes (aka pway size) tested affects the models (correlate F-statistic/p-value and number of genes) + compare with ORA/GSEA
-df.genenumber_all.es=data.frame(
-  genenum=summary.per$`number of genes`,
-  f.stat=summary.per$`F-statistic`,
-  p.val=summary.per$`p-value`)
-
-lm.fstat_geneno <- lm(genenum ~ f.stat, data = df.genenumber_all.es)
-pval.fstat_geneno <- summary(lm.fstat_geneno)$coefficients[2, 4]
-r.sq_fstat.geneno=summary(lm.fstat_geneno)$r.squared
-
-lm.pval_geneno <- lm(genenum ~ p.val, data = df.genenumber_all.es)
-pval.pval_geneno <- summary(lm.pval_geneno)$coefficients[2, 4]
-r.sq_pval.geneno=summary(lm.pval_geneno)$r.squared
-
-ggplot(df.genenumber_all.es, aes(x = genenum)) +
-  geom_point(aes(y = f.stat, color = "PERMANOVA f-statistic")) +
-  geom_smooth(aes(y = f.stat, color = "PERMANOVA f-statistic"), method = "lm", se = FALSE) +
-  geom_point(aes(y = p.val, color = "PERMANOVA p-value")) +
-  geom_smooth(aes(y = p.val, color = "PERMANOVA p-value"), method = "lm", se = FALSE) +
-  annotate("text", x = 1700, y = 5, label = paste("R-sq = ", round(r.sq_fstat.geneno,7)) , color = "#01889F", size =4) + 
-  annotate("text", x = 1700, y = 6, label = paste("p-value = ", round(pval.fstat_geneno,4)), color = "#01889F", size =4) + 
-  annotate("text", x = 1700, y= 11, label = paste("p-value = ", round(pval.pval_geneno,4)), color ="red", size = 4)+
-  annotate("text", x = 1700, y = 10, label = paste("R-sq= ", round(r.sq_pval.geneno,7)), color = "red", size =4) + 
-  labs(title = "Correlation of Pathway Size with F-statistic and p-values", x = "pathway size", y = "", color = "variable") +
-  theme(plot.title = element_text(hjust = 0.5))+
-  theme_minimal()
-
-#-----how the number of pw size affects the models (correlate sensitivity with power in 7 levels of pw size)
-pwsize=list(summary.per %>% filter(`number of genes`< 500),
-        summary.per %>% filter(`number of genes` > 500 & `number of genes`  <=900),
-        summary.per %>% filter(`number of genes`  > 900 & `number of genes` <=1000),
-        summary.per %>% filter(`number of genes`  > 1000 & `number of genes` <=1500),
-        summary.per %>% filter(`number of genes`  > 1500 & `number of genes` <= 2000),
-        summary.per %>% filter(`number of genes`  > 2000 & `number of genes` <=3000))
-
-sensitivity.pwsize=lapply(pwsize, function(x) func.sensitivity(
-    nrow(filter(x, ES!=0 & `p-value`<0.05)),
-    nrow(filter(x, ES!=0 & `p-value`>=0.05))
-  ))
-
-df.pwsize.sensitivity=cbind(
-  data.frame(sensitivity = unlist(sensitivity.pwsize)),
-  data.frame(avg_pwsize=unlist(lapply(pwsize, function(x) mean(x$`number of genes`))))
-)
-
-lm.tpr_pwsize <- lm(avg_pwsize ~ sensitivity, data = df.pwsize.sensitivity)
-pval.tpr_pwsize <- summary(lm.tpr_pwsize)$coefficients[2, 4]
-r.sq_tpr_pwsize=summary(lm.tpr_pwsize)$r.squared
-coef_tpr_pwsize=coef(lm.tpr_pwsize)[2]
-
-###############################################################-----------------
-#--------how the number of multivariate portion affects the models (correlate F-statistic/p-value and # correlated genes) + compare with ORA/GSEA
-all.multi=summary.per %>% filter(SM==2 | SM=="NC2")
-df.multi_all.es=data.frame(
-  multi.gene=all.multi$`number of correlated genes`,
-  f.stat=all.multi$`F-statistic`,
-  p.val=all.multi$`p-value`) 
-
-lm.fstat_multi <- lm(multi.gene ~ f.stat, data = df.multi_all.es)
-pval.fstat_multi <- summary(lm.fstat_multi)$coefficients[2, 4]
-r.sq_fstat_multi=summary(lm.fstat_multi)$r.squared
-coef_fstat_multi=coef(lm.fstat_multi)[2]
-
-lm.pval_multi <- lm(multi.gene ~ p.val, data = df.multi_all.es)
-pval.pval_multi <- summary(lm.pval_multi)$coefficients[2, 4]
-r.sq_pval.multi=summary(lm.pval_multi)$r.squared
-
-ggplot(df.multi_all.es, aes(x = multi.gene)) +
-  geom_point(aes(y = f.stat, color = "PERMANOVA f-statistic")) +
-  geom_smooth(aes(y = f.stat, color = "PERMANOVA f-statistic"), method = "lm", se = FALSE) +
-  geom_point(aes(y = p.val, color = "PERMANOVA p-value")) +
-  geom_smooth(aes(y = p.val, color = "PERMANOVA p-value"), method = "lm", se = FALSE) +
-  annotate("text", x = 1000, y = 3, label = paste("R-sq = ", round(r.sq_pval.multi,7)) , color = "#01889F", size =4) + 
-  annotate("text", x = 1000, y = 4, label = paste("p-value = ", round(pval.pval_multi,4)), color = "#01889F", size =4) + 
-  annotate("text", x = 1000, y= 7, label = paste("p-value = ", round(pval.fstat_multi,4)), color ="red", size = 4)+
-  annotate("text", x = 1000, y = 6, label = paste("R-sq= ", round(r.sq_fstat_multi,7)), color = "red", size =4) + 
-  labs(title = "Correlation of Number of Multivariate Genes with F-statistic and p-values", x = "multivariate genes #", y = "", color = "variable") +
-  theme(plot.title = element_text(hjust = 0.5))+
-  theme_minimal()
-
-#--------ROC independent vs multivariate:
-#multivariate
-all.es_pos_multi=lapply(alpha_thres, function(x)  all.multi %>% filter(`p-value` < x)) #all positives (for all ES beside ES=0)
-all.es_neg_multi=lapply(alpha_thres, function(x) all.multi %>% filter(`p-value` >= x)) #all negatives only
-
-all.es_tpr_multi=mapply(func.sensitivity, 
-       lapply(all.es_pos_multi, function(x) x %>% filter(ES!=0) %>% nrow(.)),
-       lapply(all.es_neg_multi, function(x) x %>% filter(ES!=0) %>% nrow(.)))
-
-all.es_fpr_multi=mapply(func.type1error, 
-           lapply(all.es_pos_multi, function(x) x %>% filter(ES==0) %>% nrow(.)),
-           lapply(all.es_neg_multi, function(x) x %>% filter(ES==0) %>% nrow(.))) 
-
-fdr.tpr_multi=data.frame(
-  tpr=all.es_tpr_multi,
-  fpr=all.es_fpr_multi,
-  group="multivariate")
-
-#independent
-all.inde=summary.per %>% filter(`number of correlated genes`==0)
-
-all.es_pos_inde=lapply(alpha_thres, function(x)  all.inde %>% filter(`p-value` < x)) #all positives (for all ES beside ES=0)
-all.es_neg_inde=lapply(alpha_thres, function(x) all.inde %>% filter(`p-value` >= x)) #all negatives only
-
-all.es_tpr_inde=mapply(func.sensitivity, 
-       lapply(all.es_pos_inde, function(x) x %>% filter(ES!=0) %>% nrow(.)),
-       lapply(all.es_neg_inde, function(x) x %>% filter(ES!=0) %>% nrow(.)))
-
-all.es_fpr_inde=mapply(func.type1error, 
-           lapply(all.es_pos_inde, function(x) x %>% filter(ES==0) %>% nrow(.)),
-           lapply(all.es_neg_inde, function(x) x %>% filter(ES==0) %>% nrow(.))) 
-
-fdr.tpr_inde=data.frame(
-  tpr=all.es_tpr_inde,
-  fpr=all.es_fpr_inde,
-  group="independent")
-
-inde_multi=rbind(fdr.tpr_multi,fdr.tpr_inde)
-
-#combined auc:
-auc_inde=sum(diff(fdr.tpr_inde$fpr) * (head(fdr.tpr_inde$tpr, -1) + tail(fdr.tpr_inde$tpr, -1)) / 2) #0.5963109
-auc_multi=sum(diff(fdr.tpr_multi$fpr) * (head(fdr.tpr_multi$tpr, -1) + tail(fdr.tpr_multi$tpr, -1)) / 2)
-
-ggplot(inde_multi, aes(x=fpr, y=tpr, color=group)) +
-  geom_point(size=1.2) +
-  theme_minimal() +
-  labs(title="ROC Model for Independent vs Multivariate Genes", x="False Positive Rate", y="True Positive Rate") +
-  scale_color_manual(values=c("#ae282c", "#003366")) +
-  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
-  theme(legend.position="bottom") +
-  geom_path() +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  annotate("text", x = 0.25, y = 0.7, label = paste("AUC =", round(auc_inde,2)), color = "#ae282c", size = 4) +
-  annotate("text", x = 0.25, y= 0.65, label = paste("n =", nrow(all.inde)), color="#ae282c", size=4) +
-  annotate("text", x= 0.25, y=0.5, label=paste("AUC =", round(auc_multi,2)), color="#003366", size=4) +
-  annotate("text", x=0.25, y=0.45,label=paste("n =", nrow(all.multi)),color="#003366", size=4)
-
-#---Compare power and error multivariate vs independent (at ES med=0.4)
-med.inde=all.inde %>% filter(ES==0.4) #84
-med.inde.ctr=all.inde %>% filter(ES==0) #90
-
-med.multi=all.multi %>% filter(ES==0.4) #42
-med.multi.ctr=all.multi %>% filter(ES==0) #56
-
-inde_med.df=data.frame(
-  model="independent",
-  metric=c("TPR","FPR"),
-  value=rbind(func.sensitivity(nrow(filter(med.inde, `p-value`<0.05)), nrow(filter(med.inde, `p-value` >= 0.05))),fpr=func.type1error(nrow(filter(med.inde.ctr, `p-value`<0.05)),nrow(filter(med.inde.ctr, `p-value`>=0.05)))
-              )
-  )
-
-multi_med.df=data.frame(
-  model="multivariate",
-  metric=c("TPR","FPR"),
-  value=rbind(func.sensitivity(nrow(filter(med.multi, `p-value`<0.05)), nrow(filter(med.multi, `p-value` >= 0.05))),
-              func.type1error(nrow(filter(med.multi.ctr, `p-value`<0.05)),nrow(filter(med.multi.ctr, `p-value`>=0.05)))      
-              )
-)
-
-med_multi_inde=rbind(inde_med.df, multi_med.df) 
-
-ggplot(med_multi_inde, aes(x = metric, y = value, fill = model)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
-  geom_text(aes(label = round(value, 2)), vjust = -0.5, position = position_dodge(0.7)) +
-  scale_fill_manual(values = c("#ae282c","#003366")) +  # Custom colors
-  labs(title = "Performance on Independent vs Multivariate Genes at Medium ES",
-       x = "Metric",
-       y = "Value",
-       fill = "Model") +
-  theme_minimal()
-
-#---correlate power (at different intervals) with power
-correlate=list(summary.per %>% filter(`number of correlated genes`<= 200),
-        summary.per %>% filter(`number of correlated genes` > 200 & `number of correlated genes` <= 250),
-        summary.per %>% filter(`number of correlated genes` > 250 & `number of correlated genes`<=450),
-        summary.per %>% filter(`number of correlated genes` > 450 & `number of correlated genes`<=500),
-        summary.per %>% filter(`number of correlated genes` > 500 & `number of correlated genes`<=800),
-        summary.per %>% filter(`number of correlated genes` > 800 & `number of correlated genes`<=1000),
-        summary.per %>% filter(`number of correlated genes` > 1000 & `number of correlated genes`<=1500))
-
-sensitivity.corr=lapply(correlate, function(x) func.sensitivity(
-    nrow(filter(x, ES!=0 & `p-value`<0.05)),
-    nrow(filter(x, ES!=0 & `p-value`>=0.05))
-  ))
-
-df.corr.sensitivity=cbind(
-  data.frame(sensitivity = unlist(sensitivity.conf)),
-  data.frame(avg_corr=unlist(lapply(correlate, function(x) mean(x$`number of correlated genes`))))
-)
-
-lm.tpr_corr <- lm(avg_corr ~ sensitivity, data = df.corr.sensitivity)
-pval.tpr_corr <- summary(lm.tpr_corr)$coefficients[2, 4]
-r.sq_tpr_corr=summary(lm.tpr_corr)$r.squared
-coef_tpr_corr=coef(lm.tpr_corr)[2]
-
-#############################################################
-#--------how unbalanced design affect the model (compare balanced and un-balanced - regarding power/sensitivity/error) - all ES
-all.es_non.ng %>% group_by(ES) %>% count() 
-
-
-#############################################################table that summarizes how different parameters affect the model's power:
-data.frame(
-  `Model parameter`=c("Sample Size","Number of Conflicting Genes","Pathway Size","Number of Correlated Genes"),
-  p.value=rbind(pval.tpr_ss, pval.tpr_conf, pval.tpr_pwsize, pval.tpr_corr),
-  rsq=rbind(r.sq_tpr_ss, r.sq_tpr_conf, r.sq_tpr_pwsize, r.sq_tpr_corr),
-  coef=unlist(rbind(coef_tpr_ss, coef_tpr_conf, coef_tpr_pwsize, coef_tpr_corr))
-  ) %>% rename("coef"="sensitivity") %>%
-  gt() %>%
-  tab_header(title = md("*Effect of Parameters on Sensitivity*")) %>%
-  fmt_number(columns = p.value, decimals = 3) %>%
-  fmt_number(columns = rsq, decimals = 3) %>% 
-  fmt_number(columns = coef, decimals = 1) %>%
-  cols_label(Model.parameter = "Model Parameter") %>%
-  tab_options(
-    table.border.top.color = "black",
-    table.border.bottom.color = "black"
-  )
-
-
-
-hist(summary.per$`number of correlated genes`
-     )
-
-#############################################################
-#------------calculate for FDR (when ES=0) - ORA:
-ora.summary<-read_excel("~/Downloads/aim2.xlsx", sheet = "Calculation.ORA") 
-  rename("ES"="mu.case-mu.control")
-
-#-----------calculate for FDR (when ES=0) 
-
-#-----------calculate for sensitivity and power for a range of ES
-#----for a wide range of pvals:
-
-#----choose ES=0.4 to look at:
-med.es_ora=ora.summary %>% filter(ES==20)
-
-#independent at med es
-med.es_ora.inde=med.es_ora %>% filter(`number of correlated genes`==0)
-
-#multivariate at med es:
-med.es_ora.corr=med.es_ora %>% filter(`number of correlated genes`!=0)
-
-#conflicting at med es:
-med.es_ora.conf=med.es_ora %>% filter(`number of conflicting KOs`!=0)
-
-#non-conflicting at med es:
-med.es_ora.nonconf=med.es_ora %>% filter(`number of conflicting KOs`==0)
-
-#sensitivity in all 4 scenarios:
-sensitvity.ora_med.es_inde=func.sensitivity(
-  nrow(filter(med.es_ora.inde, `p-value`<0.05)),
-  nrow(filter(med.es_ora.inde, `p-value` >= 0.05))
-) #0.6914894
-
-sensitivity.ora_med.es_multi=func.sensitivity(
-  nrow(filter(med.es_ora.corr, `p-value`<0.05)),
-  nrow(filter(med.es_ora.corr, `p-value` >= 0.05))
-) #0.2321429
-
-sensitvity.ora_med.es_conf=func.sensitivity(
-  nrow(filter(med.es_ora.conf, `p-value`<0.05)),
-  nrow(filter(med.es_ora.conf, `p-value` >= 0.05))
-) #0.6603774
-
-sensitvity.ora_med.es_nonconf=func.sensitivity(
-  nrow(filter(med.es_ora.nonconf, `p-value`<0.05)),
-  nrow(filter(med.es_ora.nonconf, `p-value` >= 0.05))
-) #0.443299
-
-#-----permanova:
-sensitivity.perm_med.es_conf=func.sensitivity(
-  nrow(filter(med.conf, `p-value`<0.05)), 
-  nrow(filter(med.conf, `p-value` >= 0.05)))
-
-sensitivity.perm_med.es_nonconf=func.sensitivity(
-  nrow(filter(med.nonconf, `p-value`<0.05)),
-  nrow(filter(med.nonconf, `p-value`>=0.05)))
-
-sensitivity.perm_med.es_inde=func.sensitivity(
-  nrow(filter(med.inde, `p-value`<0.05)),
-  nrow(filter(med.inde, `p-value` >=0.05)))
-
-sensitivity.perm_med.es_multi=func.sensitivity(
-  nrow(filter(med.multi, `p-value`<0.05)), 
-  nrow(filter(med.multi, `p-value` >= 0.05)))
-
-#----combine sensitivity of ora with permanova:
-ora_perma.power=data.frame(
-  model=append(rep(c("ORA"),4),rep(c("PERMANOVA"),4)),
-  sensitivity=rbind(
-    sensitvity.ora_med.es_inde, sensitivity.ora_med.es_multi, sensitvity.ora_med.es_nonconf, sensitvity.ora_med.es_conf,
-    sensitivity.perm_med.es_inde, sensitivity.perm_med.es_multi, sensitivity.perm_med.es_nonconf, sensitivity.perm_med.es_conf),
-  group=rep(c("Independent","Multivariate","Non-conflicting","Conflicting"),2)
-) 
-row.names(ora_perma.power)<-NULL
-
-#-----make a combined bar plot:
-ggplot(ora_perma.power, aes(x = group, y = sensitivity, fill = model)) +
-  geom_bar(stat = "identity", position = "dodge") +  # Side-by-side bars
-  labs(title = "Sensitivity Across Testing Scenarios at Medium Effect Size", x = "Testing Groups", y = "Sensitivity") +
-  geom_text(aes(label = round(sensitivity, 2)), vjust = -0.5, position = position_dodge(0.7)) +
-  theme_minimal() +
-  scale_fill_manual(values = c("#003366", "#ae282c")) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-#####################################-------------calculate for errors in 4 scenarios:
-ora_ctrl=ora.summary %>% filter(ES==0)
-
-#independent:
-ora.inde_ct=ora_ctrl %>% filter(`number of correlated genes`==0)
-
-#multivariate:
-ora.multi_ct=ora_ctrl %>% filter(`number of correlated genes`!=0)
-
-#conf:
-ora.conf_ct=ora_ctrl %>% filter(`number of conflicting KOs`!=0)
-
-#non-conf:
-ora.nonconf_ct=ora_ctrl %>% filter(`number of conflicting KOs`==0)
-
-#error in ora:
-error.ora_inde=func.type1error(
-  nrow(filter(ora.inde_ct, `p-value`<0.05)),
-  nrow(filter(ora.inde_ct, `p-value` >= 0.05))
-) #0.01123596
-
-error.ora_multi=func.type1error(
-  nrow(filter(ora.multi_ct, `p-value`<0.05)),
-  nrow(filter(ora.multi_ct, `p-value` >= 0.05))
-) #0.1607143
-
-error.ora_conf=func.type1error(
-  nrow(filter(ora.conf_ct, `p-value`<0.05)),
-  nrow(filter(ora.conf_ct, `p-value` >= 0.05))
-) #0.02
-
-error.ora_nonconf=func.type1error(
-  nrow(filter(ora.nonconf_ct, `p-value`<0.05)),
-  nrow(filter(ora.nonconf_ct, `p-value` >= 0.05))
-) #0.09473684
-
-#error in permanova:
-error.perm_inde=func.type1error(nrow(filter(med.inde.ctr, `p-value`<0.05)), 
-                                nrow(filter(med.inde.ctr, `p-value`>=0.05)))
-
-error.perm_multi=func.type1error(nrow(filter(med.multi.ctr, `p-value`<0.05)),
-                                 nrow(filter(med.multi.ctr, `p-value`>=0.05)))  
-
-error.perm_nonconf=func.type1error(nrow(filter(med.nonconf.ctr, `p-value`<0.05)),
-                                nrow(filter(med.nonconf.ctr, `p-value`>=0.05)))
-
-error.perm_conf=func.type1error(nrow(filter(med.conf.ctr, `p-value`<0.05)),
-                                nrow(filter(med.conf.ctr, `p-value`>=0.05)))
-error_ora.error=data.frame(
-  model=append(rep(c("ORA"),4),rep(c("PERMANOVA"),4)),
-  error=rbind(error.ora_inde, error.ora_multi, error.ora_nonconf, error.ora_conf,
-              error.perm_inde, error.perm_multi, error.perm_nonconf, error.perm_conf),
- group=rep(c("Independent","Multivariate","Non-conflicting","Conflicting"),2))
-row.names(error_ora.error)<-NULL
-
-#-----make a combined bar plot:
-ggplot(error_ora.error, aes(x = group, y = error, fill = model)) +
-  geom_bar(stat = "identity", position = "dodge") +  # Side-by-side bars
-  labs(title = "Type 1 Error Across Testing Scenarios", x = "Testing Groups", y = "Error") +
-  geom_text(aes(label = round(error, 2)), vjust = -0.5, position = position_dodge(0.7)) +
-  theme_minimal() +
-  scale_fill_manual(values = c("#003366", "#ae282c")) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-###########################---------plot sensitivity vs type 1 error: (using 17 different significant alpha thresholds)
-hist(ora.summary$`p-value`)
-ora.summary %>% arrange(`p-value`)
-alpha_thres.ora=list(1e-90,1e-40,1e-35, 1e-25, 1e-20, 1e-15, 1e-10, 1e-5, 1e-3, 1e-2, 1e-1, 0.15, 0.2, 0.3, 0.4,0.9, 0.99,1)
-
-
-ora_pos=lapply(alpha_thres.ora, function(x)  ora.summary %>% filter(`p-value` < x)) #all positives (for all ES beside ES=0)
-ora_neg=lapply(alpha_thres.ora, function(x) ora.summary %>% filter(`p-value` >= x)) #all negatives only
-
-ora_tpr=mapply(func.sensitivity, 
-       lapply(ora_pos, function(x) x %>% filter(ES!=0) %>% nrow(.)), #true positive
-       lapply(ora_neg, function(x) x %>% filter(ES!=0) %>% nrow(.))) #false negative
-
-ora_fpr=mapply(func.type1error, 
-           lapply(ora_pos, function(x) x %>% filter(ES==0) %>% nrow(.)), #false positive
-           lapply(ora_neg, function(x) x %>% filter(ES==0) %>% nrow(.)))  #true negative
-
-fdr.tpr_perma=fdr.tpr_all.es %>% mutate(group="PERMANOVA") %>% select(-es) #this is fdr vs tpr from permanova
-fdr.tpr_ora=data.frame(
-  tpr=sort(ora_tpr),
-  fpr=sort(ora_fpr),
-  group="ORA")
-
-auc.ora=sum(diff(fdr.tpr_ora$fpr) * (head(fdr.tpr_ora$tpr, -1) + tail(fdr.tpr_ora$tpr, -1)) / 2) #0.2645677
-
-#combined ROC AUC 
-fdr.tpr_ora_perma=rbind(fdr.tpr_perma,fdr.tpr_ora)
-ggplot(fdr.tpr_ora_perma, aes(x=fpr, y=tpr, color=group)) +
-  geom_point(size=1.2) +
-  theme_minimal() +
-  labs(title="ROC for PERMANOVA vs ORA", x="False Positive Rate", y="True Positive Rate") +
- scale_color_manual(values=c("#ae282c", "#003366"))+
-  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
-  theme(legend.position="bottom") +
-  geom_path()+
-  theme(plot.title = element_text(hjust = 0.5)) +
-  annotate("text", x = 0.25, y = 0.8,                          
-           label = paste("AUC of ORA =", round(auc.ora, 2)), 
-           color = "#ae282c", size = 4) +
-  annotate("text", x =0.25, y= 0.75 ,
-           label = paste("n =", nrow(filter(ora.summary))),
-           color="#ae282c", size=4) +
-  annotate("text", x= 0.25, y=0.5,
-           label=paste("AUC of PERMANOVA =", round(auc,2)),
-           color="#003366", size=4) +
-  annotate("text", x=0.25, y=0.45,
-           label=paste("n =", nrow(filter(summary.per))),
-           color="#003366", size=4)
-
-
-
-
-
-#
-
 ```
 
+
+```{r cars}
+#--rsquare correlation f-statistic (in order to use as a representation for ES)
+```
+
+
+```{r conflicting-results}
+#---ROC for conflicting vs non-conflicting:
+sm1=summary.per %>% filter(SM==1)
+conf=sm1 %>% filter(`conflicting genes`!=0) 
+nonconf=sm1 %>% filter(`conflicting genes`==0)
+
+#apply to conflicting:
+true.positive_conf=lapply(alpha_thres, function(x) conf %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.))
+false.positive_conf=lapply(alpha_thres, function(x) conf %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_conf=lapply(alpha_thres, function(x) conf %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_conf=lapply(alpha_thres, function(x) conf %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#apply to nonconflicting:
+true.positive_nonconf=lapply(alpha_thres, function(x) nonconf %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.))
+false.positive_nonconf=lapply(alpha_thres, function(x) nonconf %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_nonconf=lapply(alpha_thres, function(x) nonconf %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_nonconf=lapply(alpha_thres, function(x) nonconf %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#---calculate for fpr and tpr:
+fpr.nonconf=mapply(func.type1error,
+               false.positive_nonconf, true.negative_nonconf)
+fpr.conf=mapply(func.type1error,
+               false.positive_conf, true.negative_conf)
+
+tpr.nonconf=mapply(func.sensitivity,
+               true.positive_nonconf, false.negative_nonconf)
+tpr.conf=mapply(func.sensitivity,
+                 true.positive_conf, false.negative_conf)
+
+#---make auc:
+fdr.tpr_conf=data.frame(
+  tpr=tpr.conf,
+  fpr=fpr.conf,
+  group="conflicting"
+)
+
+fdr.tpr_nonconf=data.frame(
+  tpr=tpr.nonconf,
+  fpr=fpr.nonconf,
+  group="non-conflicting"
+)
+roc_conf=rbind(fdr.tpr_conf, fdr.tpr_nonconf) %>% cbind(unlist(alpha_thres)) %>% mutate(alpha_lev=ifelse(`unlist(alpha_thres)`==0.05,"at 0.05","other"))
+
+auc_conf=sum(diff(fdr.tpr_conf$fpr) * (head(fdr.tpr_conf$tpr, -1) + tail(fdr.tpr_conf$tpr, -1)) / 2) 
+auc_nonconf=sum(diff(fdr.tpr_nonconf$fpr) * (head(fdr.tpr_nonconf$tpr, -1) + tail(fdr.tpr_nonconf$tpr, -1)) / 2) 
+
+ggplot(roc_conf, aes(x = fpr, y = tpr, color = group, shape = alpha_lev)) +
+  geom_point(size = 3, stroke=0.3) +  # Adjust point size and stroke for visibility
+  geom_line(aes(group = interaction(group, alpha_lev)), linewidth = 1) +  # Connect points with lines
+  scale_shape_manual(values = c(16, 1)) +
+  labs(title="AUC-ROC for Conflicting vs Non-conflicting Design", x="False Positive Rate", y="True Positive Rate", size=3) +
+  scale_color_manual(values=c("#ac2e44", "#104176"))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size=12)) +
+  annotate("text", x = 0.7, y = 0.5,                          
+           label = paste("AUC (conflicting) =", round(auc_conf, 2)), 
+           color = "#ac2e44", size = 4) +
+  annotate("text", x = 0.7, y = 0.4,                          
+           label = paste("AUC (non-conflicting) =", round(auc_nonconf, 2)), 
+           color = "#104176", size = 4) 
+
+#at ES=0.4, 0.2, and 0.8 and alpha=0.05
+es.level=list(0.4)
+
+#conflicting:
+alles_conf=lapply(es.level, function(x) filter(conf, ES==x))
+alles_conf_tpr=lapply(alles_conf, function(x) func.sensitivity(
+  nrow(filter(x, `p-value/PERMANOVA`<0.05)),
+  nrow(filter(x, `p-value/PERMANOVA`>=0.05))
+))
+
+alles_conf_fpr=lapply(alles_conf, function(x) func.type1error(
+  nrow(filter(x, `p-value/PERMANOVA-NG`<0.05)),
+  nrow(filter(x, `p-value/PERMANOVA-NG`>=0.05))
+)) 
+
+#nonconflicting:
+alles_nonconf=lapply(es.level, function(x) filter(nonconf, ES==x))
+alles_nonconf_tpr=lapply(alles_nonconf, function(x) func.sensitivity(
+  nrow(filter(x, `p-value/PERMANOVA`<0.05)),
+  nrow(filter(x, `p-value/PERMANOVA`>=0.05))
+))
+
+alles_nonconf_fpr=lapply(alles_nonconf, function(x) func.type1error(
+  nrow(filter(x, `p-value/PERMANOVA-NG`<0.05)),
+  nrow(filter(x, `p-value/PERMANOVA-NG`>=0.05))
+))
+
+
+disc=data.frame(
+  model="non-conflicting",
+  metric=c("TPR","FPR"),
+  value=rbind(unlist(alles_nonconf_tpr),
+             unlist(alles_nonconf_fpr))
+) %>% rbind(data.frame(
+  model="conflicting",
+  metric=c("TPR", "FPR"),
+  value=rbind(unlist(alles_conf_tpr),
+              unlist(alles_conf_fpr))
+))
+
+#bar plot 
+ggplot(disc, aes(x = model, y = value, fill = metric)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.6) +
+  geom_text(aes(label = round(value, 2)), 
+            vjust = -0.5, 
+            position = position_dodge(width = 0.8), 
+            size = 4) + 
+  scale_fill_manual(values = c("#ae282c","#003366")) +  # Custom colors
+  labs(title = "Conflicting vs Non-conflicting Performance at Medium ES",
+       x = "Model",
+       y = "Value",
+       fill = "Metric") +
+   theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+
+```
