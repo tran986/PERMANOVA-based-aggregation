@@ -459,13 +459,3 @@ final.out=map2(adj.pval_sm3, pwayA_DEG, ~ data.frame(
 )) %>% map2(., ora.result_sm3, ~ bind_cols(.x,.y$p.value) %>% rename("pval"=c(3)))
 
 ```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
