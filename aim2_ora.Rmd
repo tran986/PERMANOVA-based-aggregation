@@ -1,140 +1,471 @@
 ---
-title: "aim2_ora"
+title: "aim2_ora_fixed"
 output: html_document
-date: "2025-02-27"
+date: "2025-03-22"
 ---
 
-```{r}
-library(tidyverse)
-library(stringr)
-library(faux)
-library(vegan)
-library(ComplexHeatmap)
-library(circlize)
-library(rio)
-library(dplyr)
-library(janitor)
-library(ape)
-library(readxl)
-library(edgeR)
-library(pairwiseAdonis)
-library(clusterProfiler)
-library(KEGGREST)
+```{r setup, include=FALSE}
+#AUTOMATION FOR CONFLICTING:
+#-----equal in pwA:
+nall=list(9,20,30,50,100) #9,20,30,50,100,500,900,1000,1500,3000) #9,20,30,50,100,500,900,1000,1500,3000 #1000
+nequal=list(5,10,15,26,50) #,750,750,750,750,750,750,750,750,750) #980,950,750,650,550,450,350,250,150,50) #5,10,15,26,50,250,450,500,750,1500 #450,350,250,150,50)
+stotal=100 #6,10,20,50,100,300,500,700,800,1000
+scase=60
+sctrl=40
+sd.case=50 
+sd.ctrl=50
+mu.ctrl=1000
+mu.differ=0
 
-###balanced, non-conflicting:--pathway A
-#----possible input:
-set.seed=123
-stotal=100 #number of total samples (sample sizes b/w groups need to be equal)
-kototal=1000 #number of total KOs
-nequal=980 #number of KOs we want to be equal (it has to be larger than 0, choose from this list)
-mu.differ=20 #try out different threshold: from 2 (small) to 20 (medium - still sig. for permanova) to 200 (large)
-mu.case=1000 #this may be fixed
-#-----
-#-----
-all_equal<- list()
-for (i in 1:nequal) {
-  all_equal[[i]] <- rnorm(n=stotal, mean=1000, sd=50)
-}
-df_equal=data.frame(all_equal)
-colnames(df_equal) <- paste0("KO", seq_len(ncol(df_equal)))
-rownames(df_equal) <- paste0("S", seq_len(nrow(df_equal)))
+case_equal=lapply(nequal, function(x) 
+  sapply(1:x, function(i) rnorm(scase, mean = mu.ctrl, sd = sd.case)) %>% 
+    data.frame()
+  )
 
-#call the number of case > control: nup (nup=95-nequal)
-#call the difference between case and control: mu.case - mu.ctrl (aka-ES)
-nup=kototal-nequal
-case<-list()
-ctrl<-list()
-all_up<-list()
-for (i in 1:nup) {
-  ctrl[[i]] <- rnorm(n=stotal/2, mean=mu.case-mu.differ, sd=50)
-  case[[i]] <- rnorm(n=stotal/2, mean=mu.case, sd=50)
-  all_up[[i]]=append(ctrl[[i]],case[[i]])
-}
-df_up=data.frame(all_up)
-colnames(df_up) <- paste0("KO", seq(ncol(df_equal)+1,kototal))
-rownames(df_up) <- paste0("S", seq_len(nrow(df_up)))
+ctrl_equal=lapply(nequal, function(x) 
+  sapply(1:x, function(i) rnorm(sctrl, mean = mu.ctrl, sd = sd.ctrl)) %>% 
+    data.frame()
+  )
+equal=map2(ctrl_equal, case_equal, ~ .x %>% rbind(.y))
 
-#merge change and the unchanged:
-pathwayA.df.sm3=df_equal %>% cbind(df_up)
+#-----not equal in pwA:(case > ctrl)
+nup_conf=map2(nall, nequal, ~ (.x - .y) %/% 2)
 
-#-----------simulate the genes dont belong to pathway A:
-set.seed(123)
-n.non.pwA=1000
+case_up=lapply(nup_conf, function(x) 
+  sapply(1:x, function(i) rnorm(scase, mean = mu.ctrl+mu.differ, sd = 50)) %>% 
+    data.frame()
+)
 
-# Generate random mean and standard deviation
-random_sd1=runif(1,30,50)  
-random_mean1=runif(1, 900,1200) 
-random_sd2=runif(1,40,60)
-random_mean2=runif(1,800,1000)
+ctrl_up=lapply(nup_conf, function(x)
+  sapply(1:x, function(i) rnorm(sctrl, mean = mu.ctrl, sd = 50)) %>% 
+    data.frame()
+)
 
-non.pwA1=list()
-non.pwA2=list()
-all.non.pwA=list()
-for (i in 1:n.notpwA) {
-  non.pwA1[[i]]<-rnorm(stotal/2, mean=random_mean1, sd=random_sd1)
-  non.pwA2[[i]]<-rnorm(stotal/2, mean=random_mean2, sd=random_sd2)
-  all.non.pwA[[i]] <- append(non.pwA1,non.pwA2)
-}
-df_bg=data.frame(all.non.pwA)
-colnames(df_bg) <- paste0("BG", seq(ncol(df_bg)))
-rownames(df_bg) <- paste0("S", seq(nrow(df_bg)))
+up_conf=Map(rbind, ctrl_up, case_up)
 
-#------------combine all parts:
-final.df.sm3=pathwayA.df.sm3 %>% cbind(df_bg)
+#-----not equal in pwA-confl.:(case < ctrl)
+ndown_conf=nup_conf
+case_down=lapply(ndown_conf, function(x) 
+  sapply(1:x, function(i) rnorm(scase, mean = mu.ctrl-mu.differ, sd = 50)) %>% 
+    data.frame()
+)
 
-#------------z-score:
+ctrl_down=lapply(ndown_conf, function(x)
+  sapply(1:x, function(i) rnorm(sctrl, mean = mu.ctrl, sd = 50)) %>% 
+    data.frame()
+)
+
+down_conf=Map(rbind, ctrl_down, case_down)
+
+sm2.pwA=Map(cbind, up_conf, down_conf) %>% Map(cbind, ., equal)
+sm2.pwA <- lapply(sm2.pwA, function(df) {
+  colnames(df) <- paste0("KO", seq(ncol(df))) 
+  return(df)  
+})
+sm2.pwA <- lapply(sm2.pwA, function(df) {
+  rownames(df) <- paste0("S", seq(nrow(df))) 
+  return(df)  
+})
+
+#-----not pwA:
+n.notpwA=1000
+sd_bg1 <- rep(50, n.notpwA) #sd of background (not pw A) 1 and 2
+sd_bg2=rep(50, n.notpwA)
+mu_bg1=rep(1000, n.notpwA) #mean of background (not pw A) 1 and 2 = 1000
+mu_bg2=rep(1000, n.notpwA)
+random_matrix.bg=matrix(rnorm(n.notpwA * n.notpwA), nrow = n.notpwA)
+R <- cov2cor(crossprod(random_matrix.bg))
+
+D.bg1 <- diag(sd_bg1)
+D.bg2 <-diag(sd_bg2)
+
+Sigma.bg1 <- D.bg1 %*% R %*% D.bg1
+Sigma.bg2 <- D.bg2 %*% R %*% D.bg2
+
+#mu.case = mu.ctrl
+ncorr_bg1 <- mvrnorm(n=sctrl, mu=mu_bg1, Sigma=Sigma.bg1) %>% as.data.frame()
+ncorr_bg2<- mvrnorm(n=scase, mu=mu_bg2, Sigma=Sigma.bg2) %>% as.data.frame()
+ncorr_bg=ncorr_bg1 %>% rbind(ncorr_bg2)
+colnames(ncorr_bg) <- paste0("BG", seq(ncol(ncorr_bg)))
+rownames(ncorr_bg) <- paste0("S", seq(nrow(ncorr_bg)))
+
+#---cbind pwA with not pwA:
+final.df.sm3=lapply(sm2.pwA, function(x)
+  cbind(x, ncorr_bg)
+  )
+
+#----metadata:
 metadata.sm3=data.frame(
-  Disease=append(rep(c("control"),stotal/2),rep(c("case"),stotal/2)),
+  Disease=append(rep(c("control"),sctrl),rep(c("case"),scase)),
   Drug=rep(c("yes"),stotal),
   BMI=runif(stotal, min=15, max=50))
 
-#################################
-#--------------------------------ORA and GSEA--automate this:
-set.seed(123)
-metadata.sm3$Disease 
-final.df.sm3
+#-----t-test + adj pvalue:
+#------------t-test and apply p-val cutoff:
+t.test_sm3=lapply(final.df.sm3, function(x)
+  apply(x, 2, function(i) t.test(i ~ metadata.sm3$Disease))
+) 
 
-#--------t-test for normal, equal dispersion:
-t.test.sm3 <- apply(final.df.sm3, 2, function(x) {
-  t_test <- t.test(x ~ metadata.sm3$Disease )  # Perform t-test
-  logFC <- log2(mean(x[metadata.sm3$Disease  == "case"]) / mean(x[metadata.sm3$Disease == "control"])) 
-  return(c(t_test$p.value, logFC))})# Return log2 fold change, and pvalue of ttest
+adj.pval_sm3=lapply(t.test_sm3, function(x)
+  lapply(x, function(i) p.adjust(i$p.value)) %>% 
+    data.frame(.) %>%
+    pivot_longer(., cols=c(1:ncol(.)), names_to="gene", values_to="adj.pval") %>%
+    filter(adj.pval <= 0.05)
+  )
 
-results_ttest.sm3 <- as.data.frame(t(t.test.sm3)) %>% 
-  rownames_to_column(var="gene") %>%
-  rename("p_value"=c(3), "logFC"=c(2)) #inputs for ORA and GSEA
+#---------use adj.pval_sm3 as input for ORA:
+#---------ORA:
+ref_pwayA=kototal #number of genes in pathway A (defined by ref.db) - equal to the number of kototal
+ref_not_pwayA=n.notpwA #number of genes not in pathway A (defined by ref. db)
 
-#--------ORA:
-#---apply p-val cutoff:
-ora.input_sm3=results_ttest.sm3 %>% filter(p_value <= 0.05)
-print(nrow(ora.input_sm3))
- 
-ref_pwayA=kotota #number of genes in pathway A (defined by ref.db) - equal to the number of kototal
-ref_not_pwayA=nequal #number of genes not in pathway A (defined by ref. db)
+pwayA_DEG=lapply(adj.pval_sm3, function(x)
+  x %>% filter(grepl("KO", gene)) %>% nrow(.)
+  ) #number of genes in DEG, and in pathway A (a)
 
-pwayA_DEG=round(0.05*nrow(ora.input_sm3))  #number of genes in DEG, and in pathway A (a)
-not.pwayA_DEG=nrow(ora.input_sm3) - pwayA_DEG #number of genes in DEG, and NOT in pathway A (b)
+not.pwayA_DEG=lapply(adj.pval_sm3, function(x)
+  x %>% filter(!grepl("KO", gene)) %>% nrow(.)
+  ) #number of genes in DEG, and NOT in pathway A (b)
 
-pwayA_not.DEG=ref_pwayA - pwayA_DEG #number of genes NOT in DEG, and in pathway A (c)
-not.pwayA_not.DEG=ref_not_pwayA - not.pwayA_DEG #number of genes NOT in DEG, and NOT in pathway A (d)
+pwayA_not.DEG=map2(ref_pwayA, pwayA_DEG, ~.x - .y) #number of genes NOT in DEG, and in pathway A (c)
+not.pwayA_not.DEG=map2(ref_not_pwayA, not.pwayA_DEG, ~.x - .y) #number of genes NOT in DEG, and NOT in pathway A (d)
 
-#---put a,b,c,d into a data frame + apply fisher's test:
-cont.tbl.sm3_ora=data.frame(
-  in_pathwayA = c(pwayA_DEG, pwayA_not.DEG),
-  not_in_pathwayA = c(not.pwayA_DEG, not.pwayA_not.DEG),
-  row.names = c("in DEG", "not in DEG")
-)
-ora.result_sm3 <- fisher.test(as.matrix(cont.tbl.sm3_ora)) 
+pwa_ora=map2(pwayA_DEG, pwayA_not.DEG, ~ cbind(.x,.y)) 
+notpwa_ora=map2(not.pwayA_DEG, not.pwayA_not.DEG, ~ cbind(.x, .y))
+  
+final.ora=map2(pwa_ora, notpwa_ora, ~ rbind(.x, .y) %>% 
+                 data.frame() %>%
+                 rename("in_pathwayA"=c(1), "not_in_pathwayA"=c(2))) %>% lapply(function(x) {
+    rownames(x) <- c("in DEG", "not in DEG")  # Update rownames
+    return(x)  # Return the modified data frame
+  })
 
+ora.result_sm3 <- lapply(final.ora, function(x)
+  fisher.test(as.matrix(x)))
 
-#---summary of ORA test:
-ora.summary_sm3=data.frame(ora.input_sm3=nrow(ora.input_sm3),
-                           pwayA_DEG=pwayA_DEG,
-                           pval=ora.result_sm3$p.value,
-                           or=ora.result_sm3$estimate,
-                           ci_low=ora.result_sm3$conf.int[[1]],
-                           ci_high=ora.result_sm3$conf.int[[2]])
-print(ora.summary_sm3)
+#------------summary of ORA test:
+ora.summary_sm3=lapply(adj.pval_sm3, function(x) nrow(x))
+
+final.out=map2(adj.pval_sm3, pwayA_DEG, ~ data.frame(
+  total.input_sm3=nrow(.x),
+  pwayA_DEG=.y
+)) %>% map2(., ora.result_sm3, ~ bind_cols(.x,.y$p.value) %>% rename("pval"=c(3)))
+
 
 ```
 
+
+
+```{r}
+#AUTOMATION FOR NON-CONFLICTING:
+nall=list(1000) #500,900,1000,1500,3000) # #9,20,30,50,100,500,900,1000,1500,3000 1000,1000,1000,1000,1000,1000,1000,1000,1000)
+nequal=list(980,950,750,650,550) #7,15,23,38,75,375,675,750,1125,2250) #80,950,750,650,550) #7,15,23,38,75,375,675,750,1125,2250 #750,750,750,750,750,750,750,750,750) #980,950,750,650,550,450,350,250,150,50) # #450,350,250,150,50)
+stotal=100
+scase=60
+sctrl=40
+sd.case=50 
+sd.ctrl=50
+mu.ctrl=1000
+mu.differ=10
+
+case_equal=lapply(nequal, function(x) 
+  sapply(1:x, function(i) rnorm(scase, mean = mu.ctrl, sd = sd.case)) %>% 
+    data.frame()
+  )
+
+ctrl_equal=lapply(nequal, function(x) 
+  sapply(1:x, function(i) rnorm(sctrl, mean = mu.ctrl, sd = sd.ctrl)) %>% 
+    data.frame()
+  )
+equal=map2(ctrl_equal, case_equal, ~ .x %>% rbind(.y))
+
+#-----not equal in pwA:(case > ctrl)
+n.nonconf=map2(nall, nequal, ~ .x - .y)
+
+case_up.nonconf=lapply(n.nonconf, function(x) 
+  sapply(1:x, function(i) rnorm(scase, mean = mu.ctrl+mu.differ, sd = 50)) %>% 
+    data.frame()
+)
+
+ctrl_up.nonconf=lapply(n.nonconf, function(x)
+  sapply(1:x, function(i) rnorm(sctrl, mean = mu.ctrl, sd = 50)) %>% 
+    data.frame()
+)
+up_nonconf=map2(ctrl_up.nonconf, case_up.nonconf, ~ rbind(.x, .y))
+
+#-----combine equal with up:
+sm2.pwA=map2(equal, up_nonconf, ~ cbind(.x, .y))
+sm2.pwA <- lapply(sm2.pwA, function(df) {
+  colnames(df) <- paste0("KO", seq(ncol(df))) 
+  return(df)  
+})
+sm2.pwA <- lapply(sm2.pwA, function(df) {
+  rownames(df) <- paste0("S", seq(nrow(df))) 
+  return(df)  
+})
+
+#-----not pwA:
+n.notpwA=1000
+sd_bg1 <- rep(50, n.notpwA) #sd of background (not pw A) 1 and 2
+sd_bg2=rep(50, n.notpwA)
+mu_bg1=rep(1000, n.notpwA) #mean of background (not pw A) 1 and 2 = 1000
+mu_bg2=rep(1000, n.notpwA)
+random_matrix.bg=matrix(rnorm(n.notpwA * n.notpwA), nrow = n.notpwA)
+R <- cov2cor(crossprod(random_matrix.bg))
+
+D.bg1 <- diag(sd_bg1)
+D.bg2 <-diag(sd_bg2)
+
+Sigma.bg1 <- D.bg1 %*% R %*% D.bg1
+Sigma.bg2 <- D.bg2 %*% R %*% D.bg2
+
+#mu.case = mu.ctrl
+ncorr_bg1 <- mvrnorm(n=sctrl, mu=mu_bg1, Sigma=Sigma.bg1) %>% as.data.frame()
+ncorr_bg2<- mvrnorm(n=scase, mu=mu_bg2, Sigma=Sigma.bg2) %>% as.data.frame()
+ncorr_bg=ncorr_bg1 %>% rbind(ncorr_bg2)
+colnames(ncorr_bg) <- paste0("BG", seq(ncol(ncorr_bg)))
+rownames(ncorr_bg) <- paste0("S", seq(nrow(ncorr_bg)))
+
+#---cbind pwA with not pwA:
+final.df.sm3=lapply(sm2.pwA, function(x)
+  cbind(x, ncorr_bg)
+  )
+
+#----metadata:
+metadata.sm3=data.frame(
+  Disease=append(rep(c("control"),sctrl),rep(c("case"),scase)),
+  Drug=rep(c("yes"),stotal),
+  BMI=runif(stotal, min=15, max=50))
+
+#-----t-test + adj pvalue:
+#------------t-test and apply p-val cutoff:
+t.test_sm3=lapply(final.df.sm3, function(x)
+  apply(x, 2, function(i) t.test(i ~ metadata.sm3$Disease))
+) 
+
+adj.pval_sm3=lapply(t.test_sm3, function(x)
+  lapply(x, function(i) p.adjust(i$p.value)) %>% 
+    data.frame(.) %>%
+    pivot_longer(., cols=c(1:ncol(.)), names_to="gene", values_to="adj.pval") %>%
+    filter(adj.pval <= 0.05)
+  )
+
+#---------use adj.pval_sm3 as input for ORA:
+#---------ORA:
+ref_pwayA=kototal #number of genes in pathway A (defined by ref.db) - equal to the number of kototal
+ref_not_pwayA=n.notpwA #number of genes not in pathway A (defined by ref. db)
+
+pwayA_DEG=lapply(adj.pval_sm3, function(x)
+  x %>% filter(grepl("KO", gene)) %>% nrow(.)
+  ) #number of genes in DEG, and in pathway A (a)
+
+not.pwayA_DEG=lapply(adj.pval_sm3, function(x)
+  x %>% filter(!grepl("KO", gene)) %>% nrow(.)
+  ) #number of genes in DEG, and NOT in pathway A (b)
+
+pwayA_not.DEG=map2(ref_pwayA, pwayA_DEG, ~.x - .y) #number of genes NOT in DEG, and in pathway A (c)
+not.pwayA_not.DEG=map2(ref_not_pwayA, not.pwayA_DEG, ~.x - .y) #number of genes NOT in DEG, and NOT in pathway A (d)
+
+pwa_ora=map2(pwayA_DEG, pwayA_not.DEG, ~ cbind(.x,.y)) 
+notpwa_ora=map2(not.pwayA_DEG, not.pwayA_not.DEG, ~ cbind(.x, .y))
+  
+final.ora=map2(pwa_ora, notpwa_ora, ~ rbind(.x, .y) %>% 
+                 data.frame() %>%
+                 rename("in_pathwayA"=c(1), "not_in_pathwayA"=c(2))) %>% lapply(function(x) {
+    rownames(x) <- c("in DEG", "not in DEG")  # Update rownames
+    return(x)  # Return the modified data frame
+  })
+
+ora.result_sm3 <- lapply(final.ora, function(x)
+  fisher.test(as.matrix(x)))
+
+#------------summary of ORA test:
+ora.summary_sm3=lapply(adj.pval_sm3, function(x) nrow(x))
+
+final.out=map2(adj.pval_sm3, pwayA_DEG, ~ data.frame(
+  total.input_sm3=nrow(.x),
+  pwayA_DEG=.y
+)) %>% map2(., ora.result_sm3, ~ bind_cols(.x,.y$p.value) %>% rename("pval"=c(3)))
+
+
+```
+
+
+```{r cars}
+#AUTOMATION FOR MULTIVARIATE:
+#-----equal in pwA:
+#---simulate portion that is correlated but case=ctrl: (sd.case=50, sd.ctrl=60)
+nall=list(1000) #number of total genes (for pw A)
+nindie=list() #,) #number of independent genes
+ncorr_up=list(100) #) #number of multivariate genes and up in case #testing...maybe try another one??
+mu.differ=0 #ES between case-ctrl multivariate
+mu.ctrl=1000 #maybe should be fixed
+stotal=1000 #number of total samples
+scase=stotal/2 #number of case samples
+sctrl=stotal/2 #number of ctrl samples
+n.notpwA=1000 #fixed
+sd.ctrl=50
+sd.case=50
+ncorr_equal_ub1=map2(nall, nindie, ~ .x - .y)
+ncorr_equal_ub=map2(ncorr_equal_ub1, ncorr_up, ~ .x - .y)
+
+#~~~~~~~~pway A:
+#---independent part:
+case_indie=lapply(nindie , function(x) 
+  sapply(1:x, function(i) rnorm(scase, mean = 1000, sd = sd.case)) %>% 
+    data.frame()
+  )
+
+ctrl_indie=lapply(nindie, function(x) 
+  sapply(1:x, function(i) rnorm(sctrl, mean = 1000, sd = sd.ctrl)) %>% 
+    data.frame()
+  )
+indie=map2(ctrl_indie, case_indie, ~ .x %>% rbind(.y))
+
+#---multivariate part: case=ctrl
+ctrl_equal_corr=lapply(ncorr_equal_ub, function(p) {
+  mu.equal <- rep(mu.ctrl, p)  # Mean vector of zeros
+  sd_ctrl <- rep(sd.ctrl, p)  
+  Sigma <- crossprod(matrix(rnorm(p^2), p, p))  # Random positive semi-definite covariance matrix
+  diag(Sigma) <- sd_ctrl^2 
+  as.data.frame(mvrnorm(n = sctrl, mu = mu.equal, Sigma = Sigma))
+})
+
+case_equal_corr=lapply(ncorr_equal_ub, function(x) {
+  mu.equal=rep(mu.ctrl, x)
+  sd.case=rep(sd.case, x)
+  Sigma=crossprod(matrix(rnorm(x^2), x, x))
+  diag(Sigma)=sd.case^2
+  as.data.frame(mvrnorm(n=scase, mu=mu.equal, Sigma=Sigma))
+})
+
+equal_corr=map2(ctrl_equal_corr, case_equal_corr, ~ rbind(.x, .y))
+
+#---multivariate part: case > ctrl
+ctrl_up_corr=lapply(ncorr_up, function(x) {
+  mu.up=rep(mu.ctrl, x)
+  sd.ctrl=rep(sd.ctrl, x)
+  Sigma=crossprod(matrix(rnorm(x^2), x, x))
+  diag(Sigma)=sd.ctrl^2
+  as.data.frame(mvrnorm(n=sctrl, mu=mu.up, Sigma=Sigma))
+})
+
+case_up_corr=lapply(ncorr_up, function(x) {
+  mu.up=rep(mu.ctrl+mu.differ, x)
+  sd.case=rep(sd.case, x)
+  Sigma=crossprod(matrix(rnorm(x^2), x, x))
+  diag(Sigma)=sd.case^2
+  as.data.frame(mvrnorm(n=scase, mu=mu.up, Sigma=Sigma))
+})
+
+up_corr=map2(ctrl_up_corr, case_up_corr, ~ rbind(.x, .y))
+
+#---combine all multivariate 
+all_corr=map2(equal_corr, up_corr, ~ cbind(.x, .y))
+
+#---combine indie with multivariate:
+sm2.pwA=map2(indie, all_corr, ~ cbind(.x, .y))
+sm2.pwA <- lapply(sm2.pwA, function(df) {
+  colnames(df) <- paste0("KO", seq(ncol(df))) 
+  return(df)  
+})
+sm2.pwA <- lapply(sm2.pwA, function(df) {
+  rownames(df) <- paste0("S", seq(nrow(df))) 
+  return(df)  
+})
+
+
+#~~~~~~~~not in pway A:
+#-----not pwA:
+n.notpwA=1000
+sd_bg1 <- rep(50, n.notpwA) #sd of background (not pw A) 1 and 2
+sd_bg2=rep(50, n.notpwA)
+mu_bg1=rep(1000, n.notpwA) #mean of background (not pw A) 1 and 2 = 1000
+mu_bg2=rep(1000, n.notpwA)
+random_matrix.bg=matrix(rnorm(n.notpwA * n.notpwA), nrow = n.notpwA)
+R <- cov2cor(crossprod(random_matrix.bg))
+
+D.bg1 <- diag(sd_bg1)
+D.bg2 <-diag(sd_bg2)
+
+Sigma.bg1 <- D.bg1 %*% R %*% D.bg1
+Sigma.bg2 <- D.bg2 %*% R %*% D.bg2
+
+#mu.case = mu.ctrl
+ncorr_bg1 <- mvrnorm(n=sctrl, mu=mu_bg1, Sigma=Sigma.bg1) %>% as.data.frame()
+ncorr_bg2<- mvrnorm(n=scase, mu=mu_bg2, Sigma=Sigma.bg2) %>% as.data.frame()
+ncorr_bg=ncorr_bg1 %>% rbind(ncorr_bg2)
+colnames(ncorr_bg) <- paste0("BG", seq(ncol(ncorr_bg)))
+rownames(ncorr_bg) <- paste0("S", seq(nrow(ncorr_bg)))
+
+#-----cbind pwA with not pwA:
+final.df.sm3=lapply(sm2.pwA, function(x)
+  cbind(x, ncorr_bg)
+  )
+
+#----metadata:
+metadata.sm3=data.frame(
+  Disease=append(rep(c("control"),sctrl),rep(c("case"),scase)),
+  Drug=rep(c("yes"),stotal),
+  BMI=runif(stotal, min=15, max=50))
+
+#-----t-test + adj pvalue:
+#------------t-test and apply p-val cutoff:
+t.test_sm3=lapply(final.df.sm3, function(x)
+  apply(x, 2, function(i) t.test(i ~ metadata.sm3$Disease))
+) 
+
+adj.pval_sm3=lapply(t.test_sm3, function(x)
+  lapply(x, function(i) p.adjust(i$p.value)) %>% 
+    data.frame(.) %>%
+    pivot_longer(., cols=c(1:ncol(.)), names_to="gene", values_to="adj.pval") %>%
+    filter(adj.pval <= 0.05)
+  )
+
+#---------use adj.pval_sm3 as input for ORA:
+#---------ORA:
+ref_pwayA=kototal #number of genes in pathway A (defined by ref.db) - equal to the number of kototal
+ref_not_pwayA=n.notpwA #number of genes not in pathway A (defined by ref. db)
+
+pwayA_DEG=lapply(adj.pval_sm3, function(x)
+  x %>% filter(grepl("KO", gene)) %>% nrow(.)
+  ) #number of genes in DEG, and in pathway A (a)
+
+not.pwayA_DEG=lapply(adj.pval_sm3, function(x)
+  x %>% filter(!grepl("KO", gene)) %>% nrow(.)
+  ) #number of genes in DEG, and NOT in pathway A (b)
+
+pwayA_not.DEG=map2(ref_pwayA, pwayA_DEG, ~.x - .y) #number of genes NOT in DEG, and in pathway A (c)
+not.pwayA_not.DEG=map2(ref_not_pwayA, not.pwayA_DEG, ~.x - .y) #number of genes NOT in DEG, and NOT in pathway A (d)
+
+pwa_ora=map2(pwayA_DEG, pwayA_not.DEG, ~ cbind(.x,.y)) 
+notpwa_ora=map2(not.pwayA_DEG, not.pwayA_not.DEG, ~ cbind(.x, .y))
+  
+final.ora=map2(pwa_ora, notpwa_ora, ~ rbind(.x, .y) %>% 
+                 data.frame() %>%
+                 rename("in_pathwayA"=c(1), "not_in_pathwayA"=c(2))) %>% lapply(function(x) {
+    rownames(x) <- c("in DEG", "not in DEG")  # Update rownames
+    return(x)  # Return the modified data frame
+  })
+
+ora.result_sm3 <- lapply(final.ora, function(x)
+  fisher.test(as.matrix(x)))
+
+#------------summary of ORA test:
+ora.summary_sm3=lapply(adj.pval_sm3, function(x) nrow(x))
+
+final.out=map2(adj.pval_sm3, pwayA_DEG, ~ data.frame(
+  total.input_sm3=nrow(.x),
+  pwayA_DEG=.y
+)) %>% map2(., ora.result_sm3, ~ bind_cols(.x,.y$p.value) %>% rename("pval"=c(3)))
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
