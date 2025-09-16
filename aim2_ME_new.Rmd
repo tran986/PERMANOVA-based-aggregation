@@ -1,0 +1,1285 @@
+---
+title: "aim2_modelevaluation_new"
+output: html_document
+date: "2025-03-20"
+---
+
+```{r general AUC-ROC}
+#-----------import excel file:
+library(broom)
+library(plotly)
+summary.per <- read_excel("~/Downloads/aim2.xlsx", sheet = "Calculation.new") %>% rename("ES"=c(1))
+
+################################################################----------------
+#---------plot sensitivity vs type 1 error: (using 19 different significant alpha thresholds)
+alpha_thres=list(0,0.00001,0.0009,0.004,0.005,0.006,0.008,0.01,0.02,0.03,0.05,0.1,0.2,0.375,0.5,0.6,0.8,0.9,1)
+
+#---generate a function to calculate TPR:
+func.sensitivity=function(true.positive, false.negative) {
+  return(true.positive/(true.positive+false.negative)) }
+
+#---generate a function to calculate type 1 error:
+func.type1error=function(false.positive, true.negative) {
+  return(false.positive/(false.positive+true.negative))
+}
+
+#---apply functions on ES=0.4
+all_med=summary.per %>% filter(ES==0.4) 
+true.positive_med=lapply(alpha_thres, function(x) all_med %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.)) 
+false.positive_med=lapply(alpha_thres, function(x) all_med %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_med=lapply(alpha_thres, function(x) all_med %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_med=lapply(alpha_thres, function(x) all_med %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#---apply functions on ES=0.8
+all_large=summary.per %>% filter(ES==0.8)
+true.positive_large=lapply(alpha_thres, function(x) all_large %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.)) 
+false.positive_large=lapply(alpha_thres, function(x) all_large %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_large=lapply(alpha_thres, function(x) all_large %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_large=lapply(alpha_thres, function(x) all_large %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#---apply functions on ES=0.2
+all_small=summary.per %>% filter(ES==0.2)
+true.positive_small=lapply(alpha_thres, function(x) all_small %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.)) 
+false.positive_small=lapply(alpha_thres, function(x) all_small %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_small=lapply(alpha_thres, function(x) all_small %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_small=lapply(alpha_thres, function(x) all_small %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#---apply functions on combined ES:
+true.positive_all=lapply(alpha_thres, function(x) summary.per %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.)) 
+false.positive_all=lapply(alpha_thres, function(x) summary.per %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_all=lapply(alpha_thres, function(x) summary.per %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_all=lapply(alpha_thres, function(x) summary.per %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#---calculate for fpr and tpr:
+fpr.med=mapply(func.type1error,
+               false.positive_med, true.negative_med)
+fpr.large=mapply(func.type1error,
+               false.positive_large, true.negative_large)
+fpr.small=mapply(func.type1error,
+               false.positive_small, true.negative_small)
+fpr.all=mapply(func.type1error,
+               false.positive_all, true.negative_all)
+
+tpr.med=mapply(func.sensitivity,
+               true.positive_med, false.negative_med)
+tpr.large=mapply(func.sensitivity,
+                 true.positive_large, false.negative_large)
+tpr.small=mapply(func.sensitivity,
+                 true.positive_small, false.negative_small)
+tpr.all=mapply(func.sensitivity,
+                 true.positive_all, false.negative_all)
+
+#make auc:
+fdr.tpr_small.es=data.frame(
+  tpr=tpr.small,
+  fpr=fpr.small,
+  es="small")
+  
+fdr.tpr_med.es=data.frame(
+  tpr=tpr.med,
+  fpr=fpr.med,
+  es="medium")
+
+fdr.tpr_large.es=data.frame(
+  tpr=tpr.large,
+  fpr=fpr.large,
+  es="large")
+
+fdr.tpr_all.es=data.frame(
+  tpr=tpr.all,
+  fpr=fpr.all,
+  es="all")
+
+#manual calculate for auc
+auc_med=sum(diff(fdr.tpr_med.es$fpr) * (head(fdr.tpr_med.es$tpr, -1) + tail(fdr.tpr_med.es$tpr, -1)) / 2) 
+auc_large=sum(diff(fdr.tpr_large.es$fpr)* (head(fdr.tpr_large.es$tpr, -1) + tail(fdr.tpr_large.es$tpr, -1)) / 2) 
+auc_small=sum(diff(fdr.tpr_small.es$fpr)* (head(fdr.tpr_small.es$tpr, -1) + tail(fdr.tpr_small.es$tpr, -1)) / 2) 
+auc_all=sum(diff(fdr.tpr_all.es$fpr) * (head(fdr.tpr_all.es$tpr, -1) + tail(fdr.tpr_all.es$tpr, -1)) / 2) 
+
+roc.df_1=rbind(fdr.tpr_large.es, fdr.tpr_small.es, fdr.tpr_med.es, fdr.tpr_all.es) %>% cbind(unlist(alpha_thres)) %>% mutate(alpha_lev=ifelse(alpha==0.05,"at 0.05","other"))
+
+ggplot(roc.df_1, aes(x = fpr, y = tpr, color = es, shape = alpha_lev)) +
+  geom_point(size = 3, stroke=0.35) +  # Adjust point size and stroke for visibility
+  geom_line(aes(group = interaction(es, alpha_lev)), linewidth = 1) +  # Connect points with lines
+  scale_shape_manual(values = c(16, 1)) +
+  labs(title="AUC-ROC for Different Effect Size", x="False Positive Rate", y="True Positive Rate", size=3) +
+  scale_color_manual(values=c("#ac2e44", "#104176", "#f55724","#72ccae"))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size=12)) +
+  annotate("text", x = 0.7, y = 0.5,                          
+           label = paste("AUC (all ES) =", round(auc_all, 2)), 
+           color = "#ac2e44", size = 4) +
+  annotate("text", x = 0.7, y = 0.4,                          
+           label = paste("AUC (ES=0.8) =", round(auc_large, 2)), 
+           color = "#104176", size = 4) +
+  annotate("text", x = 0.7, y = 0.3,                          
+           label = paste("AUC (ES=0.4) =", round(auc_med, 2)), 
+           color = "#f55724", size = 4) +
+  annotate("text", x = 0.7, y = 0.2,                          
+           label = paste("AUC (ES=0.2) =", round(auc_small, 2)), 
+           color = "#72ccae", size = 4) 
+
+
+  
+```
+
+
+```{r cars}
+#--rsquare correlation f-statistic (in order to use as a representation for ES)
+```
+
+
+```{r conflicting-results}
+#---ROC for conflicting vs non-conflicting:
+sm1=summary.per %>% filter(SM==1)
+conf=sm1 %>% filter(`conflicting genes`!=0) 
+nonconf=sm1 %>% filter(`conflicting genes`==0)
+
+#apply to conflicting:
+true.positive_conf=lapply(alpha_thres, function(x) conf %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.))
+false.positive_conf=lapply(alpha_thres, function(x) conf %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_conf=lapply(alpha_thres, function(x) conf %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_conf=lapply(alpha_thres, function(x) conf %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#apply to nonconflicting:
+true.positive_nonconf=lapply(alpha_thres, function(x) nonconf %>%
+                           filter(`p-value/PERMANOVA`< x) %>%
+                           nrow(.))
+false.positive_nonconf=lapply(alpha_thres, function(x) nonconf %>% 
+                            filter(`p-value/PERMANOVA-NG`< x) %>% 
+                            nrow(.))
+false.negative_nonconf=lapply(alpha_thres, function(x) nonconf %>% 
+                            filter(`p-value/PERMANOVA` >= x) %>% 
+                            nrow(.))
+true.negative_nonconf=lapply(alpha_thres, function(x) nonconf %>% 
+                            filter(`p-value/PERMANOVA-NG` >= x) %>% 
+                            nrow(.))
+
+#---calculate for fpr and tpr:
+fpr.nonconf=mapply(func.type1error,
+               false.positive_nonconf, true.negative_nonconf)
+fpr.conf=mapply(func.type1error,
+               false.positive_conf, true.negative_conf)
+
+tpr.nonconf=mapply(func.sensitivity,
+               true.positive_nonconf, false.negative_nonconf)
+tpr.conf=mapply(func.sensitivity,
+                 true.positive_conf, false.negative_conf)
+
+#---make auc:
+fdr.tpr_conf=data.frame(
+  tpr=tpr.conf,
+  fpr=fpr.conf,
+  group="conflicting"
+)
+
+fdr.tpr_nonconf=data.frame(
+  tpr=tpr.nonconf,
+  fpr=fpr.nonconf,
+  group="non-conflicting"
+)
+roc_conf=rbind(fdr.tpr_conf, fdr.tpr_nonconf) %>% cbind(unlist(alpha_thres)) %>% mutate(alpha_lev=ifelse(`unlist(alpha_thres)`==0.05,"at 0.05","other"))
+
+auc_conf=sum(diff(fdr.tpr_conf$fpr) * (head(fdr.tpr_conf$tpr, -1) + tail(fdr.tpr_conf$tpr, -1)) / 2) 
+auc_nonconf=sum(diff(fdr.tpr_nonconf$fpr) * (head(fdr.tpr_nonconf$tpr, -1) + tail(fdr.tpr_nonconf$tpr, -1)) / 2) 
+
+ggplot(roc_conf, aes(x = fpr, y = tpr, color = group, shape = alpha_lev)) +
+  geom_point(size = 3, stroke=0.3) +  # Adjust point size and stroke for visibility
+  geom_line(aes(group = interaction(group, alpha_lev)), linewidth = 1) +  # Connect points with lines
+  scale_shape_manual(values = c(16, 1)) +
+  labs(title="AUC-ROC for Conflicting vs Non-conflicting Design", x="False Positive Rate", y="True Positive Rate", size=3) +
+  scale_color_manual(values=c("#ac2e44", "#104176"))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size=12)) +
+  annotate("text", x = 0.7, y = 0.5,                          
+           label = paste("AUC (conflicting) =", round(auc_conf, 2)), 
+           color = "#ac2e44", size = 4) +
+  annotate("text", x = 0.7, y = 0.4,                          
+           label = paste("AUC (non-conflicting) =", round(auc_nonconf, 2)), 
+           color = "#104176", size = 4) 
+
+#at ES=0.4, 0.2, and 0.8 and alpha=0.05
+es.level=list(0.4)
+
+#conflicting:
+alles_conf=lapply(es.level, function(x) filter(conf, ES==x))
+alles_conf_tpr=lapply(alles_conf, function(x) func.sensitivity(
+  nrow(filter(x, `p-value/PERMANOVA`<0.05)),
+  nrow(filter(x, `p-value/PERMANOVA`>=0.05))
+))
+
+alles_conf_fpr=lapply(alles_conf, function(x) func.type1error(
+  nrow(filter(x, `p-value/PERMANOVA-NG`<0.05)),
+  nrow(filter(x, `p-value/PERMANOVA-NG`>=0.05))
+)) 
+
+#nonconflicting:
+alles_nonconf=lapply(es.level, function(x) filter(nonconf, ES==x))
+alles_nonconf_tpr=lapply(alles_nonconf, function(x) func.sensitivity(
+  nrow(filter(x, `p-value/PERMANOVA`<0.05)),
+  nrow(filter(x, `p-value/PERMANOVA`>=0.05))
+))
+
+alles_nonconf_fpr=lapply(alles_nonconf, function(x) func.type1error(
+  nrow(filter(x, `p-value/PERMANOVA-NG`<0.05)),
+  nrow(filter(x, `p-value/PERMANOVA-NG`>=0.05))
+))
+
+
+disc=data.frame(
+  model="non-conflicting",
+  metric=c("TPR","FPR"),
+  value=rbind(unlist(alles_nonconf_tpr),
+             unlist(alles_nonconf_fpr))
+) %>% rbind(data.frame(
+  model="conflicting",
+  metric=c("TPR", "FPR"),
+  value=rbind(unlist(alles_conf_tpr),
+              unlist(alles_conf_fpr))
+))
+
+#bar plot 
+ggplot(disc, aes(x = model, y = value, fill = metric)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.6) +
+  geom_text(aes(label = round(value, 2)), 
+            vjust = -0.5, 
+            position = position_dodge(width = 0.8), 
+            size = 4) + 
+  scale_fill_manual(values = c("#ae282c","#003366")) +  # Custom colors
+  labs(title = "Conflicting vs Non-conflicting Performance at Medium ES",
+       x = "Model",
+       y = "Value",
+       fill = "Metric") +
+   theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+```
+
+```{r}
+#---ROC for indie vs multivariate:
+indie_random=summary.per %>% filter(SM==1 & `conflicting genes`==0) %>% tail(84)
+sm2=summary.per %>% filter(SM==2)
+
+#apply to indie:
+tpr_indie=lapply(alpha_thres, function(x) func.sensitivity(
+  nrow(filter(indie_random, `p-value/PERMANOVA` < x)),
+  nrow(filter(indie_random, `p-value/PERMANOVA` >= x))
+))
+
+fpr_indie=lapply(alpha_thres, function(x) func.type1error(
+  nrow(filter(indie_random, `p-value/PERMANOVA-NG` < x)),
+  nrow(filter(indie_random, `p-value/PERMANOVA-NG` >= x))
+))
+#apply to multivariate:
+tpr_multi=lapply(alpha_thres, function(x) func.sensitivity(
+  nrow(filter(sm2, `p-value/PERMANOVA` < x)),
+  nrow(filter(sm2, `p-value/PERMANOVA` >= x))
+))
+
+fpr_multi=lapply(alpha_thres, function(x) func.type1error(
+  nrow(filter(sm2, `p-value/PERMANOVA-NG` < x)),
+  nrow(filter(sm2, `p-value/PERMANOVA-NG` >= x))
+))
+
+#make auc:
+fdr.tpr_indie=data.frame(
+  tpr=unlist(tpr_indie),
+  fpr=unlist(fpr_indie),
+  group="independent",
+  alpha=unlist(alpha_thres))
+
+fdr.tpr_multi=data.frame(
+  tpr=unlist(tpr_multi),
+  fpr=unlist(fpr_multi),
+  group="multivariate", 
+  alpha=unlist(alpha_thres))
+
+indie_multi=rbind(fdr.tpr_indie,fdr.tpr_multi) %>% mutate(alpha_lev=ifelse(alpha == 0.05, "yes", "no"))
+
+auc_multi=sum(diff(fdr.tpr_multi$fpr) * (head(fdr.tpr_multi$tpr, -1) + tail(fdr.tpr_multi$tpr, -1)) / 2) 
+auc_indie=sum(diff(fdr.tpr_indie$fpr) * (head(fdr.tpr_indie$tpr, -1) + tail(fdr.tpr_indie$tpr, -1)) / 2) 
+
+ggplot(indie_multi, aes(x = fpr, y = tpr, color = group, shape = alpha_lev)) +
+  geom_point(size = 3, stroke=0.35) +  # Adjust point size and stroke for visibility
+  geom_line(aes(group = interaction(group, alpha_lev)), linewidth = 1) +  # Connect points with lines
+  scale_shape_manual(values = c(1, 16)) +
+  labs(title="AUC-ROC for Independent vs Multivariate Design", x="False Positive Rate", y="True Positive Rate", size=3) +
+  scale_color_manual(values=c("#ac2e44", "#104176"))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size=12)) +
+  annotate("text", x = 0.7, y = 0.5,                          
+           label = paste("AUC for Ind. Design =", round(auc_indie, 2)), 
+           color = "#ac2e44", size = 4) +
+  annotate("text", x = 0.7, y = 0.4,                          
+           label = paste("AUC for Multi. Design =", round(auc_multi, 2)), 
+           color = "#104176", size = 4)
+
+#make barplot (at ES=0.4, has to be the same number of run multi vs indie)
+indie.med=summary.per %>% filter(SM==1 & `conflicting genes`==0 & ES==0.4) %>% tail(42)
+sm2.med=sm2 %>% filter(ES==0.4)
+
+indie_med.tpr=func.sensitivity(
+  nrow(filter(indie.med, `p-value/PERMANOVA`<0.05)),
+  nrow(filter(indie.med, `p-value/PERMANOVA`>=0.05))
+)
+indie_med.fpr=func.type1error(
+  nrow(filter(indie.med, `p-value/PERMANOVA-NG`<0.05)),
+  nrow(filter(indie.med, `p-value/PERMANOVA-NG`>=0.05))
+)
+
+multi_med.tpr=func.sensitivity(
+  nrow(filter(sm2.med, `p-value/PERMANOVA`<0.05)),
+  nrow(filter(sm2.med, `p-value/PERMANOVA`>=0.05))
+)
+
+multi_med.fpr=func.type1error(
+  nrow(filter(sm2.med, `p-value/PERMANOVA-NG`<0.05)),
+  nrow(filter(sm2.med, `p-value/PERMANOVA-NG`>=0.05))
+)
+
+indie_multi=data.frame(
+  group="independent",
+  metric=c("TPR","FPR"),
+  value=rbind(indie_med.tpr,indie_med.fpr)
+) %>% 
+  rbind(data.frame(
+  group="multivariate",
+  metric=c("TPR", "FPR"),
+  value=rbind(multi_med.tpr,multi_med.fpr)
+))
+
+#bar plot 
+ggplot(indie_multi, aes(x = group, y = value, fill = metric)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.6) +
+  geom_text(aes(label = round(value, 2)), 
+            vjust = -0.5, 
+            position = position_dodge(width = 0.8), 
+            size = 3.8) + 
+  scale_fill_manual(values = c("#ae282c","#003366")) +  # Custom colors
+  labs(title = "Multivariate vs Independent Design Performance at Medium ES",
+       x = "Model",
+       y = "Value",
+       fill = "Metric") +
+   theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+
+```
+
+```{r}
+#---ROC for balanced vs unbalanced:
+all_bal=summary.per %>% filter(balance=="balanced") 
+all_unbal=summary.per %>% filter(balance=="unbalanced") 
+
+tpr_bal=lapply(alpha_thres, function(x) func.sensitivity(
+  nrow(filter(all_bal,`p-value/PERMANOVA` < x )),
+  nrow(filter(all_bal,`p-value/PERMANOVA` >= x))
+))
+fpr_bal=lapply(alpha_thres, function(x) func.type1error(
+  nrow(filter(all_bal, `p-value/PERMANOVA-NG` < x )),
+  nrow(filter(all_bal, `p-value/PERMANOVA-NG` >= x ))
+))
+
+
+tpr_unbal=lapply(alpha_thres, function(x) func.sensitivity(
+  nrow(filter(all_unbal,`p-value/PERMANOVA` < x )),
+  nrow(filter(all_unbal,`p-value/PERMANOVA` >= x))
+))
+
+fpr_unbal=lapply(alpha_thres, function(x) func.type1error(
+  nrow(filter(all_unbal, `p-value/PERMANOVA-NG` < x )),
+  nrow(filter(all_unbal, `p-value/PERMANOVA-NG` >= x ))
+))
+
+#---make auc:
+fdr.tpr_bal=data.frame(
+  tpr=unlist(tpr_bal),
+  fpr=unlist(fpr_bal),
+  group="balance",
+  alpha=unlist(alpha_thres))
+
+fdr.tpr_unbal=data.frame(
+  tpr=unlist(tpr_unbal),
+  fpr=unlist(fpr_unbal),
+  group="unbalance",
+  alpha=unlist(alpha_thres))
+
+bal_unbal_roc=rbind(fdr.tpr_bal, fdr.tpr_unbal) %>% mutate(alpha_lev=ifelse(alpha == 0.05, "yes", "no"))
+
+auc_bal=sum(diff(fdr.tpr_bal$fpr) * (head(fdr.tpr_bal$tpr, -1) + tail(fdr.tpr_bal$tpr, -1)) / 2) #0.9115301
+auc_unbal=sum(diff(fdr.tpr_unbal$fpr) * (head(fdr.tpr_unbal$tpr, -1) + tail(fdr.tpr_unbal$tpr, -1)) / 2) #0.9600551
+
+ggplot(bal_unbal_roc, aes(x = fpr, y = tpr, color = group, shape = alpha_lev)) +
+  geom_point(size = 3, stroke=0.35) +  # Adjust point size and stroke for visibility
+  geom_line(aes(group = interaction(group, alpha_lev)), linewidth = 1) +  # Connect points with lines
+  scale_shape_manual(values = c(1, 16)) +
+  labs(title="AUC-ROC for Balanced vs Unbalanced Design", x="False Positive Rate", y="True Positive Rate", size=3) +
+  scale_color_manual(values=c("#ac2e44", "#104176"))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size=12)) +
+  annotate("text", x = 0.72, y = 0.5,                          
+           label = paste("AUC for Balanced Design =", round(auc_bal, 4)), 
+           color = "#ac2e44", size = 4) +
+  annotate("text", x = 0.72, y = 0.4,                          
+           label = paste("AUC for Unbalanced Design =", round(auc_unbal, 4)), 
+           color = "#104176", size = 4)
+
+#----make barplot (at ES=0.4, has to be the same number of run multi vs indie)
+med.bal=rbind(summary.per %>% filter(balance=="balanced" & ES==0.4) )
+              
+              #%>% tail(25),
+              #summary.per %>% filter(balance=="balanced" & ES==0.4) %>% head (26))
+med.unbal=summary.per %>% filter(balance=="unbalanced" & ES==0.4)
+
+bal_med.tpr=func.sensitivity(
+  nrow(filter(med.bal, `p-value/PERMANOVA`<0.05)),
+  nrow(filter(med.bal, `p-value/PERMANOVA`>=0.05))
+)
+bal_med.fpr=func.type1error(
+  nrow(filter(med.bal, `p-value/PERMANOVA-NG`<0.05)),
+  nrow(filter(med.bal, `p-value/PERMANOVA-NG`>=0.05))
+)
+
+unbal_med.tpr=func.sensitivity(
+  nrow(filter(med.unbal, `p-value/PERMANOVA`<0.05)),
+  nrow(filter(med.unbal, `p-value/PERMANOVA`>=0.05))
+)
+
+unbal_med.fpr=func.type1error(
+  nrow(filter(med.unbal, `p-value/PERMANOVA-NG`<0.05)),
+  nrow(filter(med.unbal, `p-value/PERMANOVA-NG`>=0.05))
+)
+
+bal_unbal_med=data.frame(
+  group="balanced",
+  metric=c("TPR","FPR"),
+  value=rbind(bal_med.tpr,bal_med.fpr)
+) %>% 
+  rbind(data.frame(
+  group="unbalanced",
+  metric=c("TPR", "FPR"),
+  value=rbind(unbal_med.tpr,unbal_med.fpr)
+))
+
+
+#bar plot 
+ggplot(bal_unbal_med, aes(x = group, y = value, fill = metric)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.6) +
+  geom_text(aes(label = round(value, 2)), 
+            vjust = -0.5, 
+            position = position_dodge(width = 0.8), 
+            size = 3.8) + 
+  scale_fill_manual(values = c("#ae282c","#003366")) +  # Custom colors
+  labs(title = "Balanced vs Unbalanced Design Model Performance at Medium ES",
+       x = "Model",
+       y = "Value",
+       fill = "Metric") +
+   theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+```
+
+
+```{r pway size / sample size affecting the model?}
+#-------how the number of sample size affects the models (correlate sensitivity with sample size in 7 levels of sample size): need more simulations here
+ss=list(summary.per %>% filter(`total sample size`< 50),
+        summary.per %>% filter(`total sample size` > 50 & `total sample size` <=100),
+        summary.per %>% filter(`total sample size` > 100 & `total sample size`<=300),
+        summary.per %>% filter(`total sample size` > 500 & `total sample size`<=700),
+        summary.per %>% filter(`total sample size` > 700 & `total sample size`<=900),
+        summary.per %>% filter(`total sample size` > 900 & `total sample size`<=1000))
+
+sensitivity.ss=lapply(ss, function(x) func.sensitivity(
+  filter(x, `p-value/PERMANOVA` < 0.05) %>% nrow(.),
+  filter(x, `p-value/PERMANOVA` >= 0.05) %>% nrow(.))
+)
+error.ss=lapply(ss, function(x) func.type1error(
+  filter(x, `p-value/PERMANOVA-NG` < 0.05) %>% nrow(.),
+  filter(x, `p-value/PERMANOVA-NG` >= 0.05) %>% nrow(.))
+)
+
+df.ss.sensitivity.error=cbind(
+  data.frame(sensitivity = unlist(sensitivity.ss)),
+  data.frame(avg_ss=unlist(lapply(ss, function(x) mean(x$`total sample size`)))),
+  data.frame(error=unlist(error.ss))
+)
+
+lm.tpr_ss <- lm(avg_ss ~ sensitivity, data = df.ss.sensitivity.error)
+pval.tpr_ss <- summary(lm.tpr_ss)$coefficients[2, 4]
+ggplot(df.ss.sensitivity, aes(x=sensitivity, y=avg_ss)) + 
+  geom_point()
+
+  annotate("text", x = 0.7, y = 500, label = paste("p-value = ", round(pval.tpr_ss,3)) , color = "blue", size =4) +
+  labs(title= "Correlation between Average of Sample Size and TPR", x="TPR", y="Average Sample Size")+
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+
+lm.fpr_ss <- lm(avg_ss ~ error, data = df.ss.sensitivity.error)
+pval.fpr_ss <- summary(lm.fpr_ss)$coefficients[2, 4]
+ggplot(df.ss.sensitivity.error, aes(x=error, y=avg_ss)) + 
+  geom_point()+
+  geom_smooth(method=lm) +
+  annotate("text", x = 0.015, y = 510, label = paste("p-value = ", round(pval.fpr_ss,3)) , color = "blue", size =4) +
+  labs(title= "Correlation between Average of Sample Size and FPR", x="FPR", y="Average Sample Size")+
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+
+#-----how the number of pw size affects the models (correlate sensitivity with power in 7 levels of pw size)
+pwsize=list(summary.per %>% filter(`number of genes`< 500),
+        summary.per %>% filter(`number of genes` > 500 & `number of genes`  <=900),
+        summary.per %>% filter(`number of genes`  > 900 & `number of genes` <=1000),
+        summary.per %>% filter(`number of genes`  > 1000 & `number of genes` <=1500),
+        summary.per %>% filter(`number of genes`  > 1500 & `number of genes` <= 2000),
+        summary.per %>% filter(`number of genes`  > 2000 & `number of genes` <=3000))
+
+View(pwsize)
+
+sensitivity.pwsize=lapply(pwsize, function(x) func.sensitivity(
+  filter(x, `p-value/PERMANOVA` < 0.05) %>% nrow(.),
+  filter(x, `p-value/PERMANOVA` >= 0.05) %>% nrow(.))
+)
+error.pwsize=lapply(pwsize, function(x) func.type1error(
+  filter(x, `p-value/PERMANOVA-NG` < 0.05) %>% nrow(.),
+  filter(x, `p-value/PERMANOVA-NG` >= 0.05) %>% nrow(.))
+)
+
+df.pws.sensitivity.error=cbind(
+  data.frame(sensitivity = unlist(sensitivity.pwsize)),
+  data.frame(avg_pwsize=unlist(lapply(ss, function(x) mean(x$`number of genes`)))),
+  data.frame(error=unlist(error.pwsize))
+)
+
+lm.tpr_pwsize <- lm(avg_pwsize ~ sensitivity, data = df.pws.sensitivity.error)
+pval.tpr_pwsize <- summary(lm.tpr_pwsize)$coefficients[2, 4]
+
+ggplot(df.pws.sensitivity.error, aes(x=sensitivity, y=avg_pwsize)) + 
+  geom_point()
+
+  geom_smooth(method=lm) 
+  
+  #annotate("text", x = 0.7, y = 500, label = paste("p-value = ", round(pval.tpr_ss,3)) , color = "blue", size =4) +
+  labs(title= "Correlation between Average of Pathway Size and TPR", x="TPR", y="Average Pathway Size")+
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+```
+
+
+```{r pway size / sample size affecting the model?}
+ggplot(df.pws.sensitivity.error, aes(x=sensitivity, y=avg_pwsize)) + 
+  geom_point()+
+  geom_smooth(method=lm, color="red") +
+  annotate("text", x = 0.9, y = 1001, label = paste("p-value = ", round(pval.tpr_pwsize,3)) , color = "red", size =4) +
+  labs(title= "Correlation between the Average of Pathway Size and TPR", x="TPR", y="Average Pathway Size")+
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+
+lm.fpr_pwsize <- lm(avg_pwsize ~ error, data = df.pws.sensitivity.error)
+pval.fpr_pwsize <- summary(lm.fpr_pwsize)$coefficients[2, 4]
+ggplot(df.pws.sensitivity.error, aes(x=error, y=avg_pwsize)) + 
+  geom_point()+
+  geom_smooth(method=lm, color="red") +
+  annotate("text", x = 0.015, y = 1001, label = paste("p-value = ", round(pval.fpr_pwsize,3)) , color = "red", size =4) +
+  labs(title= "Correlation between the Average of Pathway Size and FPR", x="FPR", y="Average Pathway Size")+
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+```
+
+
+```{r ES correlation with R-sq or F-statistic}
+#----correlate with f-stat
+#----using only nonconflicting genes, SM1, !=0.4 and !=0.8
+df.es=summary.per %>% filter(SM==1) %>% filter(`conflicting genes`==0) %>% filter(ES!=0.4) %>% filter(ES!=0.8)
+lm_fstat.es <- lm(`F-statistic/PERMANOVA` ~ ES, data = df.es)
+pval.fstat_es <- summary(lm_fstat.es)$coefficients[2, 4]
+test=ggplot(df.es, aes(x=`F-statistic/PERMANOVA`, y=ES)) + 
+  geom_point()+
+  geom_smooth(method=lm, color="#6c62e2") +
+  annotate("text", x = 10, y = 2, label = paste("p-value = ", round(pval.fstat_es, 24)) , color = "#6c62e2", size =4) +
+  labs(title= "Correlation of Effect Size and F-statistic (in all non-conflicting genes)", x="F-statistic", y="Simulated Effect Size")+
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+
+#----using only multivariate genes
+df.es.multi=summary.per %>% filter(SM==2) %>% filter(ES!=0.4) %>% filter(balance=="balanced")
+lm_fstat.es.multi <- lm(`F-statistic/PERMANOVA` ~ ES, data = df.es.multi)
+pval.fstat_es.multi <- summary(lm_fstat.es.multi)$coefficients[2, 4]
+test.multi=ggplot(df.es.multi, aes(x=`F-statistic/PERMANOVA`, y=ES)) + 
+  geom_point()+
+  geom_smooth(method=lm, color="#6c62e2") +
+  annotate("text", x = 1.25, y = 5, label = paste("p-value = ", round(pval.fstat_es.multi, 24)) , color = "#6c62e2", size =4) +
+  labs(title= "Correlation of Effect Size and F-statistic (in multivariate simulations)", x="F-statistic", y="Simulated Effect Size")+
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+ggplotly(test.multi)
+
+#----correlate with r-square
+#----using only nonconflicting genes, SM1, !=0.4 and !=0.8
+lm_rsq.es <- lm(`R-sq/PERMANOVA` ~ ES, data = df.es)
+pval.rsq_es <- summary(lm_rsq.es)$coefficients[2, 4]
+ggplot(df.es, aes(x=`R-sq/PERMANOVA`, y=ES)) + 
+  geom_point()+
+  geom_smooth(method=lm, color="#354a21") +
+  annotate("text", x = 0.055, y = 2, label = paste("p-value = ", round(pval.rsq_es, 20)) , color = "#354a21", size =4) +
+  labs(title= "Correlation of Effect Size and R-squared (all nononflicting genes)", x="R-squared", y="Simulated Effect Size")+
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+
+#----using only conflicting genes, SM1, !=0.4 and !=0.8
+lm_rsq.es.multi <- lm(`R-sq/PERMANOVA` ~ ES, data = df.es.multi)
+pval.rsq_es.multi <- summary(lm_rsq.es.multi)$coefficients[2, 4]
+ggplot(df.es.multi, aes(x=`R-sq/PERMANOVA`, y=ES)) + 
+  geom_point()+
+  geom_smooth(method=lm, color="#354a21") +
+  annotate("text", x = 0.0125, y = 5, label = paste("p-value = ", round(pval.fstat_es.multi, 24)) , color = "#354a21", size =4) +
+  labs(title= "Correlation of R-squared and F-statistic (in multivariate simulations)", x="R-squared", y="Simulated Effect Size")+
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 13, face = "bold"),
+        axis.text.x = element_text(size = 11),
+        axis.title.y = element_text(size=11))
+
+
+summary_table <- rbind(
+  glance(lm_fstat.es) %>% mutate(Model = "F-statistic (nonconflicting)", `p-value` = round(pval.fstat_es, 24)),
+  glance(lm_rsq.es) %>% mutate(Model = "R-squared (nonconflicting)", `p-value`=round(pval.rsq_es, 20))) %>% rbind(., glance(lm_fstat.es.multi) %>% mutate(Model = "F-statistic (multivariate)", `p-value`=round(pval.fstat_es.multi, 20))) %>% rbind(.,glance(lm_rsq.es.multi) %>% mutate(Model="R-squared (multivariate)", `p-value`=round(pval.rsq_es.multi, 20))) %>% 
+  select(Model, r.squared, adj.r.squared, `p-value`, deviance) %>% rename("R-squared"="r.squared", "Adjusted R-squared"="adj.r.squared", "P-value"="p-value","Deviance"="deviance")
+
+library(flextable)
+flextable(summary_table) %>%
+  theme_booktabs() %>%
+  set_caption("Comparison of R-square and F-statistic Representation as Effect Size") %>%
+  autofit()
+```
+
+
+```{r analyzing and comparing with ORA}
+ora.summary=read_excel("~/Downloads/aim2.xlsx", sheet = "Calculation.ORA") %>% select(-c(13))
+#auc-roc for ORA, put the same figure to compare with permanova: (at ES = 0.4 and at all ES)
+ora.med=ora.summary %>% filter(ES==0.4)
+perma.med=summary.per %>% filter(ES==0.4)
+
+alpha_thres.new=list(0,3.013273e-261, 1e-90,1e-80,1e-40,1e-38,1e-36,1e-30,1e-20,1e-15,1e-10,1e-05,0.001, 0.01,0.05,0.1,0.15,0.2,0.3,0.4,0.9, 0.99,1, 1.01)
+
+#ora: (at ES=0.4)
+tpr_med.ora=lapply(alpha_thres.new, function(x)
+  func.sensitivity(
+    nrow(filter(ora.med,`p-value/PERMANOVA`< x)),
+    nrow(filter(ora.med, `p-value/PERMANOVA`>= x))
+  ))
+fpr_med.ora=lapply(alpha_thres.new, function(x)
+  func.type1error(
+    nrow(filter(ora.med, `p-value/PERMANOVA-NG`< x)),
+    nrow(filter(ora.med, `p-value/PERMANOVA-NG` >= x))
+  ))
+
+#permanova: (at ES=0.4)
+tpr_med.perma=lapply(alpha_thres.new, function(x)
+  func.sensitivity(
+    nrow(filter(perma.med, `p-value/PERMANOVA` < x)),
+    nrow(filter(perma.med, `p-value/PERMANOVA` >= x))
+  ))
+fpr_med.perma=lapply(alpha_thres.new, function(x)
+  func.type1error(
+    nrow(filter(perma.med, `p-value/PERMANOVA-NG`<x)),
+    nrow(filter(perma.med, `p-value/PERMANOVA-NG` >= x))
+  )
+  )
+
+#---make auc:
+fdr.tpr_ora=data.frame(
+  tpr=unlist(tpr_med.ora),
+  fpr=unlist(fpr_med.ora),
+  group="ORA",
+  alpha=unlist(alpha_thres.new))
+
+fdr.tpr_perma=data.frame(
+  tpr=unlist(tpr_med.perma),
+  fpr=unlist(fpr_med.perma),
+  group="PERMANOVA",
+  alpha=unlist(alpha_thres.new))
+
+ora.perma_roc=rbind(fdr.tpr_ora, fdr.tpr_perma) %>% mutate(alpha_lev=ifelse(alpha == 0.05, "at 0.05", "other"))
+
+auc.ora=sum(diff(fdr.tpr_ora$fpr) * (head(fdr.tpr_ora$tpr, -1) + tail(fdr.tpr_ora$tpr, -1)) / 2) #0.84
+auc.perma=sum(diff(fdr.tpr_perma$fpr) * (head(fdr.tpr_perma$tpr, -1) + tail(fdr.tpr_perma$tpr, -1)) / 2) #0.92
+  
+ggplot(ora.perma_roc, aes(x = fpr, y = tpr, color = group, shape = alpha_lev)) +
+  geom_point(size = 3, stroke=0.35) +  # Adjust point size and stroke for visibility
+  geom_line(aes(group = interaction(group)), linewidth = 1) +  # Connect points with lines
+  scale_shape_manual(values = c(16, 1)) +
+  labs(title="AUC-ROC of ORA and PERMANOVA at Medium ES", x="False Positive Rate", y="True Positive Rate", size=3) +
+  scale_color_manual(values=c("#fa5f23", "#4a21a9"))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size=12)) +
+  annotate("text", x = 0.7, y = 0.5,                          
+           label = paste("AUC for ORA =", round(auc.ora, 2)), 
+           color = "#fa5f23", size = 4) +
+  annotate("text", x = 0.7, y = 0.4,                          
+           label = paste("AUC for PERMANOVA =", round(auc.perma, 2)), 
+           color = "#4a21a9", size = 4)
+
+
+```
+
+
+```{r analyzing and comparing with ORA-breaking down at ES=0.4}
+#--perma-conf and nonconf
+sm1=summary.per %>% filter(SM==1 & ES==0.4)
+conf=sm1 %>% filter(`conflicting genes`!=0) 
+nonconf=sm1 %>% filter(`conflicting genes`==0)
+
+#--ora-conf and nonconf:
+sm1.ora=ora.summary %>% filter(SM==1 & ES==0.4)
+conf.ora=sm1.ora %>% filter(`number of conflicting KOs`!=0)
+nonconf.ora=sm1.ora %>% filter(`number of conflicting KOs`==0)
+
+#--perma-multi and indie:
+indie_random=summary.per %>% filter(SM==1 & `conflicting genes`==0 & ES==0.4) %>% tail(42)
+sm2=summary.per %>% filter(SM==2 & ES==0.4)
+
+#--ora-multi vs indie
+indie_random.ora=ora.summary %>% filter(SM==1 & `number of conflicting KOs`==0 & ES==0.4) %>% tail(24)
+sm2.ora=ora.summary %>% filter(SM==2 & ES==0.4)
+
+#--perma-bal vs unbal:
+all_bal=summary.per %>% filter(balance=="balanced" & ES==0.4) 
+all_unbal=summary.per %>% filter(balance=="unbalanced"& ES==0.4) 
+
+#--ora-bal vs unbal:
+all_bal.ora=ora.summary %>% filter(balance=="balance" & ES==0.4) 
+all_unbal.ora=ora.summary %>% filter(balance=="unbalance"& ES==0.4) 
+
+#---all power in ora
+ora_merge=list(
+  Conflicting=conf.ora, 
+  Nonconflicting=nonconf.ora,
+  Independent=indie_random.ora,
+  Multivariate=sm2.ora,
+  Balance=all_bal.ora,
+  Unbalance=all_unbal.ora)
+
+perma_merge=list(
+  Conflicting=conf, 
+  Nonconflicting=nonconf,
+  Independent=indie_random,
+  Multivariate=sm2,
+  Balance=all_bal,
+  Unbalance=all_unbal)
+
+
+#---all power in perma at ES=0.4
+power_ora=lapply(ora_merge, function(x) func.sensitivity(
+    nrow(filter(x,`p-value/PERMANOVA`< 0.05)),
+    nrow(filter(x,`p-value/PERMANOVA`>= 0.05))
+  ))
+    
+power_perma=lapply(perma_merge, function(i) func.sensitivity(
+    nrow(filter(i,`p-value/PERMANOVA`< 0.05)),
+    nrow(filter(i,`p-value/PERMANOVA`>= 0.05))
+  ))
+
+#---all error in ora at ES=0.4
+error_ora=lapply(ora_merge, function(i) func.type1error(
+    nrow(filter(i,`p-value/PERMANOVA-NG`< 0.05)),
+    nrow(filter(i,`p-value/PERMANOVA-NG`>= 0.05))
+  ))
+
+error_perma=lapply(perma_merge, function(i) func.type1error(
+    nrow(filter(i,`p-value/PERMANOVA-NG`< 0.05)),
+    nrow(filter(i,`p-value/PERMANOVA-NG`>=0.05))
+  )) 
+
+#---make a dataframe preping for bar plot:
+fpr.med=as.data.frame(error_perma) %>% 
+  pivot_longer(., cols=c(1:6), names_to="testing group", values_to="fpr") %>% 
+  mutate(model="permanova") %>% rbind(
+as.data.frame(error_ora) %>%
+  pivot_longer(., cols=c(1:6), names_to="testing group", values_to="fpr") %>% 
+  mutate(model="ora"))
+
+tpr.med=as.data.frame(power_perma) %>% 
+  pivot_longer(., cols=c(1:6), names_to="testing group", values_to="tpr") %>% 
+  mutate(model="permanova") %>% rbind(
+as.data.frame(power_ora) %>%
+  pivot_longer(., cols=c(1:6), names_to="testing group", values_to="tpr") %>% 
+  mutate(model="ora"))
+
+#---make a combined bar plot:
+fpr.med$`testing group` <- factor(fpr.med$`testing group` , levels = c("Conflicting","Nonconflicting", "Independent", "Multivariate", "Balance","Unbalance"))
+tpr.med$`testing group` <- factor(tpr.med$`testing group` , levels = c("Conflicting","Nonconflicting", "Independent", "Multivariate", "Balance","Unbalance"))
+
+#-----make a combined bar plot:
+ggplot(fpr.med, aes(x = `testing group`, y = fpr, fill = model)) +
+  geom_bar(stat = "identity", position = "dodge") +  # Side-by-side bars
+  labs(title = "Type 1 Error Comparison Across Testing Scenarios at Medium ES", x = "Testing Groups", y = "Error") +
+  geom_text(aes(label = round(fpr, 3)), vjust = -0.5, position = position_dodge(0.8),  size = 3) +
+  theme_minimal() +
+  theme(
+    axis.text.x=element_text(face="bold"),
+    plot.title=element_text(face="bold", size=14)
+  ) +
+  scale_fill_manual(values = c("#ef4444", "#009f75")) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+#-----make a combined bar plot:
+ggplot(tpr.med, aes(x = `testing group`, y = tpr, fill = model)) + 
+  geom_bar(stat = "identity", position = "dodge") +  # Side-by-side bars
+  labs(title = "Sensitivity Comparison Across Testing Scenarios at Medium ES", x = "Testing Groups", y = "Sensitivity") +
+  geom_text(aes(label = round(tpr, 3)), vjust = -0.5, position = position_dodge(0.8),  size = 3) +
+  theme_minimal() +
+  theme(
+    axis.text.x=element_text(face="bold"),
+    plot.title=element_text(face="bold", size=14)
+  ) +
+  scale_fill_manual(values = c("#ef4444", "#009f75")) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+#--------------------------analyzing and comparing with ORA at all ES:
+#--perma-conf and nonconf
+perma_nonconf=summary.per %>% filter(SM==1) %>% filter(`conflicting genes`==0) 
+perma_conf=summary.per %>% filter(SM==1) %>% filter(`conflicting genes`!=0) 
+
+#--ora-conf and nonconf
+ora_nonconf=ora.summary %>% filter(SM==1) %>% filter(`number of conflicting KOs`==0)
+ora_conf=ora.summary %>% filter(SM==1) %>% filter(`number of conflicting KOs`!=0)
+
+#--perma-multi and indie
+perma_indie=summary.per %>% filter(SM==1) %>% filter(`conflicting genes`==0) %>% head(84)
+perma_multi=summary.per %>% filter(SM==2)
+
+#--ora-multi vs indie:
+ora_indie=ora.summary %>% filter(SM==1) %>% filter(`number of conflicting KOs`==0) %>% head(84)
+ora_multi=ora.summary %>% filter(SM==2)
+
+#--perma bal vs unbal:
+perma_bal=summary.per %>% filter(balance=="balanced")
+perma_unbal=summary.per %>% filter(balance=="unbalanced")
+
+#--ora bal vs unbal:
+ora_bal=ora.summary %>% filter(balance=="balance")
+ora_unbal=ora.summary %>% filter(balance=="unbalance")
+
+all.perma=list(
+  Conflicting=perma_conf,
+  Nonconflicting=perma_nonconf,
+  Independent=perma_indie,
+  Multivariate=perma_multi,
+  Balance=perma_bal,
+  Unbalance=perma_unbal
+)
+
+all.ora=list(
+  Conflicting=ora_conf,
+  Nonconflicting=ora_nonconf,
+  Independent=ora_indie,
+  Multivariate=ora_multi,
+  Balance=ora_bal,
+  Unbalance=ora_unbal
+)
+
+#---all power at all ES
+power_ora_alles=lapply(all.ora, function(x) func.sensitivity(
+    nrow(filter(x,`p-value/PERMANOVA`< 0.05)),
+    nrow(filter(x,`p-value/PERMANOVA`>= 0.05))
+  ))
+    
+power_perma_alles=lapply(all.perma, function(i) func.sensitivity(
+    nrow(filter(i,`p-value/PERMANOVA`< 0.05)),
+    nrow(filter(i,`p-value/PERMANOVA`>= 0.05))
+  ))
+#---all error at all ES
+error_ora_alles=lapply(all.ora, function(x) func.sensitivity(
+    nrow(filter(x,`p-value/PERMANOVA-NG`< 0.05)),
+    nrow(filter(x,`p-value/PERMANOVA-NG`>= 0.05))
+  ))
+    
+error_perma_alles=lapply(all.perma, function(i) func.sensitivity(
+    nrow(filter(i,`p-value/PERMANOVA-NG`< 0.05)),
+    nrow(filter(i,`p-value/PERMANOVA-NG`>= 0.05))
+  ))
+
+#---make a dataframe preping for bar plot:
+fpr.alles=as.data.frame(error_perma_alles) %>% 
+  pivot_longer(., cols=c(1:6), names_to="testing group", values_to="fpr") %>% 
+  mutate(model="permanova") %>% rbind(
+as.data.frame(error_ora_alles) %>%
+  pivot_longer(., cols=c(1:6), names_to="testing group", values_to="fpr") %>% 
+  mutate(model="ora"))
+
+tpr.alles=as.data.frame(power_perma_alles) %>% 
+  pivot_longer(., cols=c(1:6), names_to="testing group", values_to="tpr") %>% 
+  mutate(model="permanova") %>% rbind(
+as.data.frame(power_ora_alles) %>%
+  pivot_longer(., cols=c(1:6), names_to="testing group", values_to="tpr") %>% 
+  mutate(model="ora"))
+
+#-----make a combined bar plot:
+fpr.alles$`testing group` <- factor(fpr.alles$`testing group` , levels = c("Nonconflicting", "Conflicting", "Independent","Multivariate","Balance","Unbalance"))
+
+ggplot(fpr.alles, aes(x = `testing group`, y = fpr, fill = model)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width=.9) +  # Side-by-side bars
+  labs(title = "Type 1 Error Comparison Across Testing Scenarios", x = "Testing Groups", y = "Error") +
+  geom_text(aes(label = round(fpr, 3)), vjust = -0.5, position = position_dodge(0.8),  size = 3) +
+  theme_minimal() +
+  theme(
+    axis.text.x=element_text(face="bold"),
+    plot.title=element_text(face="bold", size=14)
+  ) +
+  scale_fill_manual(values = c("brown", "darkolivegreen")) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(tpr.alles, aes(x = `testing group`, y = tpr, fill = model)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width=.9) +  # Side-by-side bars
+  labs(title = "Sensitivity Comparison Across Testing Scenarios", x = "Testing Groups", y = "Sensitivity") +
+  geom_text(aes(label = round(tpr, 3)), vjust = -0.5, position = position_dodge(0.8),  size = 3) +
+  theme_minimal() +
+  theme(
+    axis.text.x=element_text(face="bold"),
+    plot.title=element_text(face="bold", size=14)
+  ) +
+  scale_fill_manual(values = c("brown", "darkolivegreen")) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+```{r analyzing and comparing with ORA- AUC/ROC for special cases}
+#--perma-conf and nonconf
+sm1.all=summary.per %>% filter(SM==1)
+conf.all=sm1.all %>% filter(`conflicting genes`!=0) 
+nonconf.all=sm1.all %>% filter(`conflicting genes`==0)
+
+#--ora-conf and nonconf:
+sm1.ora.all=ora.summary %>% filter(SM==1)
+conf.ora.all=sm1.ora.all %>% filter(`number of conflicting KOs`!=0)
+nonconf.ora.all=sm1.ora.all %>% filter(`number of conflicting KOs`==0)
+
+#--perma-multi and indie:
+indie_random.all=summary.per %>% filter(SM==1 & `conflicting genes`==0) %>% head(42)
+sm2.all=summary.per %>% filter(SM==2)
+
+#--ora-multi vs indie
+indie_random.ora.all=ora.summary %>% filter(SM==1 & `number of conflicting KOs`==0) %>% tail(84)
+sm2.ora.all=ora.summary %>% filter(SM==2)
+
+#--perma-bal vs unbal:
+all_bal.all=summary.per %>% filter(balance=="balanced") 
+all_unbal.all=summary.per %>% filter(balance=="unbalanced") 
+
+#--ora-bal vs unbal:
+all_bal.ora.all=ora.summary %>% filter(balance=="balance") 
+all_unbal.ora.all=ora.summary %>% filter(balance=="unbalance") 
+
+ora_merge.all=list(
+  Conflicting=conf.ora.all, 
+  Nonconflicting=nonconf.ora.all,
+  Independent=indie_random.ora.all,
+  Multivariate=sm2.ora.all,
+  Balance=all_bal.ora.all,
+  Unbalance=all_unbal.ora.all)
+
+perma_merge=list(
+  Conflicting=conf.all, 
+  Nonconflicting=nonconf.all,
+  Independent=indie_random.all,
+  Multivariate=sm2.all,
+  Balance=all_bal.all,
+  Unbalance=all_unbal.all)
+
+#-------------------conflicting vs non-conflicting ORA:
+conf_ora.power=lapply(alpha_thres.new, function(x)
+  func.sensitivity(
+    nrow(ora_merge.all$Conflicting %>% filter(`p-value/PERMANOVA` < x)),
+    nrow(ora_merge.all$Conflicting %>% filter(`p-value/PERMANOVA` >=x))
+  ))
+nonconf_ora.power=lapply(alpha_thres.new, function(x)
+  func.sensitivity(
+    nrow(ora_merge.all$Nonconflicting %>% filter(`p-value/PERMANOVA` < x)),
+    nrow(ora_merge.all$Nonconflicting %>% filter(`p-value/PERMANOVA` >=x))
+  ))
+
+conf_ora.error=lapply(alpha_thres.new, function(x)
+  func.type1error(
+    nrow(ora_merge.all$Conflicting %>% filter(`p-value/PERMANOVA-NG` < x)),
+    nrow(ora_merge.all$Conflicting %>% filter(`p-value/PERMANOVA-NG` >=x))
+  ))
+
+nonconf_ora.error=lapply(alpha_thres.new, function(x)
+  func.type1error(
+    nrow(ora_merge.all$Nonconflicting %>% filter(`p-value/PERMANOVA-NG` < x)),
+    nrow(ora_merge.all$Nonconflicting %>% filter(`p-value/PERMANOVA-NG` >=x))
+  ))
+
+conf_roc.ora=data.frame(
+  model="conflicting",
+  tpr=unlist(conf_ora.power),
+  fpr=unlist(conf_ora.error),
+  alpha=unlist(alpha_thres.new)
+)
+nonconf_roc.ora=data.frame(
+    model="nonconflicting",
+    tpr=unlist(nonconf_ora.power),
+    fpr=unlist(nonconf_ora.error),
+    alpha=unlist(alpha_thres.new))
+conf.nonconf.ora=rbind(conf_roc.ora,nonconf_roc.ora) %>% mutate(alpha_lev=ifelse(alpha==0.05,"at 0.05","others")) 
+
+auc.ora_conf=sum(diff(conf_roc.ora$fpr) * (head(conf_roc.ora$tpr, -1) + tail(conf_roc.ora$tpr, -1)) / 2) #0.882716 
+auc.ora_nonconf=sum(diff(nonconf_roc.ora$fpr) * (head(nonconf_roc.ora$tpr, -1) + tail(nonconf_roc.ora$tpr, -1)) / 2) #0.9208642
+
+ggplot(conf.nonconf_roc.ora, aes(x = fpr, y = tpr, color = model, shape = alpha_lev)) +
+  geom_point(size = 3, stroke=0.35) +  # Adjust point size and stroke for visibility
+  geom_line(aes(group = interaction(model)), linewidth = 1) +  # Connect points with lines
+  scale_shape_manual(values = c(16, 1)) +
+  labs(title="AUC-ROC for Conflicting vs Nonconflicting (ORA)", x="False Positive Rate", y="True Positive Rate", size=3) +
+  scale_color_manual(values=c("#298c8c", "#f1a226"))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size=12)) +
+  annotate("text", x = 0.7, y = 0.5,                          
+           label = paste("AUC for Conflicting =", round(auc.ora_conf, 2)), 
+           color = "#298c8c", size = 4) +
+  annotate("text", x = 0.7, y = 0.4,                          
+           label = paste("AUC for Nonconflicting =", round(auc.ora_nonconf, 2)), 
+           color = "#f1a226", size = 4)
+
+#-------------------independent vs multivariate ORA:
+indie_ora.power=lapply(alpha_thres.new, function(x)
+  func.sensitivity(
+    nrow(ora_merge.all$Independent %>% filter(`p-value/PERMANOVA` < x)),
+    nrow(ora_merge.all$Independent %>% filter(`p-value/PERMANOVA` >=x))
+  ))
+multi_ora.power=lapply(alpha_thres.new, function(x)
+  func.sensitivity(
+    nrow(ora_merge.all$Multivariate %>% filter(`p-value/PERMANOVA` < x)),
+    nrow(ora_merge.all$Multivariate %>% filter(`p-value/PERMANOVA` >=x))
+  ))
+
+indie_ora.error=lapply(alpha_thres.new, function(x)
+  func.type1error(
+    nrow(ora_merge.all$Independent %>% filter(`p-value/PERMANOVA-NG` < x)),
+    nrow(ora_merge.all$Independent %>% filter(`p-value/PERMANOVA-NG` >=x))
+  ))
+
+multi_ora.error=lapply(alpha_thres.new, function(x)
+  func.type1error(
+    nrow(ora_merge.all$Multivariate %>% filter(`p-value/PERMANOVA-NG` < x)),
+    nrow(ora_merge.all$Multivariate %>% filter(`p-value/PERMANOVA-NG` >=x))
+  ))
+
+indie_roc.ora=data.frame(
+  model="independent",
+  tpr=unlist(indie_ora.power),
+  fpr=unlist(indie_ora.error),
+  alpha=unlist(alpha_thres.new)
+)
+multi_roc.ora=data.frame(
+    model="multivariate",
+    tpr=unlist(multi_ora.power),
+    fpr=unlist(multi_ora.error),
+    alpha=unlist(alpha_thres.new))
+
+indie.multi.ora=rbind(indie_roc.ora,multi_roc.ora) %>% mutate(alpha_lev=ifelse(alpha==0.05,"at 0.05","others")) 
+
+auc.ora_indie=sum(diff(indie_roc.ora$fpr) * (head(indie_roc.ora$tpr, -1) + tail(indie_roc.ora$tpr, -1)) / 2) #0.9208642 
+auc.ora_multi=sum(diff(multi_roc.ora$fpr) * (head(multi_roc.ora$tpr, -1) + tail(multi_roc.ora$tpr, -1)) / 2) #0.8653901
+
+ggplot(indie.multi.ora, aes(x = fpr, y = tpr, color = model, shape = alpha_lev)) +
+  geom_point(size = 3, stroke=0.35) +  # Adjust point size and stroke for visibility
+  geom_line(aes(group = interaction(model)), linewidth = 1) +  # Connect points with lines
+  scale_shape_manual(values = c(16, 1)) +
+  labs(title="AUC-ROC for Multivariate vs Independent (ORA)", x="False Positive Rate", y="True Positive Rate", size=3) +
+  scale_color_manual(values=c("#298c8c", "#f1a226"))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size=12)) +
+  annotate("text", x = 0.7, y = 0.5,                          
+           label = paste("AUC for Independent =", round(auc.ora_indie, 2)), 
+           color = "#298c8c", size = 4) +
+  annotate("text", x = 0.7, y = 0.4,                          
+           label = paste("AUC for Multivariate =", round(auc.ora_multi, 2)), 
+           color = "#f1a226", size = 4)
+
+#-------------------balance vs unbalance ORA:
+bal_ora.power=lapply(alpha_thres.new, function(x)
+  func.sensitivity(
+    nrow(ora_merge.all$Balance %>% filter(`p-value/PERMANOVA` < x)),
+    nrow(ora_merge.all$Balance %>% filter(`p-value/PERMANOVA` >=x))
+  ))
+unbal_ora.power=lapply(alpha_thres.new, function(x)
+  func.sensitivity(
+    nrow(ora_merge.all$Unbalance %>% filter(`p-value/PERMANOVA` < x)),
+    nrow(ora_merge.all$Unbalance %>% filter(`p-value/PERMANOVA` >=x))
+  ))
+
+bal_ora.error=lapply(alpha_thres.new, function(x)
+  func.type1error(
+    nrow(ora_merge.all$Balance %>% filter(`p-value/PERMANOVA-NG` < x)),
+    nrow(ora_merge.all$Balance %>% filter(`p-value/PERMANOVA-NG` >=x))
+  ))
+
+unbal_ora.error=lapply(alpha_thres.new, function(x)
+  func.type1error(
+    nrow(ora_merge.all$Unbalance %>% filter(`p-value/PERMANOVA-NG` < x)),
+    nrow(ora_merge.all$Unbalance %>% filter(`p-value/PERMANOVA-NG` >=x))
+  ))
+
+bal_roc.ora=data.frame(
+  model="balance",
+  tpr=unlist(bal_ora.power),
+  fpr=unlist(bal_ora.error),
+  alpha=unlist(alpha_thres.new)
+)
+unbal_roc.ora=data.frame(
+    model="unbalance",
+    tpr=unlist(unbal_ora.power),
+    fpr=unlist(unbal_ora.error),
+    alpha=unlist(alpha_thres.new))
+
+bal.unbal.ora=rbind(bal_roc.ora,unbal_roc.ora) %>% mutate(alpha_lev=ifelse(alpha==0.05,"at 0.05","others")) 
+
+auc.ora_bal=sum(diff(bal_roc.ora$fpr) * (head(bal_roc.ora$tpr, -1) + tail(bal_roc.ora$tpr, -1)) / 2) #0.9208642 
+auc.ora_unbal=sum(diff(bal_roc.ora$fpr) * (head(bal_roc.ora$tpr, -1) + tail(bal_roc.ora$tpr, -1)) / 2) #0.8653901
+
+ggplot(bal.unbal.ora, aes(x = fpr, y = tpr, color = model, shape = alpha_lev)) +
+  geom_point(size = 3, stroke=0.35) +  # Adjust point size and stroke for visibility
+  geom_line(aes(group = interaction(model)), linewidth = 1) +  # Connect points with lines
+  scale_shape_manual(values = c(16, 1)) +
+  labs(title="AUC-ROC for Balance vs Unbalance (ORA)", x="False Positive Rate", y="True Positive Rate", size=3) +
+  scale_color_manual(values=c("#298c8c", "#f1a226"))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed") +
+  theme(legend.position="bottom",       
+        panel.grid = element_line(color = "lightgray"),  # Set grid lines to light gray
+        panel.background = element_blank(),         # Remove grid lines
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size=12)) +
+  annotate("text", x = 0.7, y = 0.5,                          
+           label = paste("AUC for Balance =", round(auc.ora_bal, 2)), 
+           color = "#298c8c", size = 4) +
+  annotate("text", x = 0.7, y = 0.4,                          
+           label = paste("AUC for Unbalance =", round(auc.ora_unbal, 2)), 
+           color = "#f1a226", size = 4)
+
+
+```
+```{r} 
+#evaluate gsea's performance:
+
+```
+
