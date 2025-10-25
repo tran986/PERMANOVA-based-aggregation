@@ -7,7 +7,7 @@
 #  Project Description:
 To accommodate for some disadvantages in the current pathway enrichment analytical approaches -  Gene Set Enrichment Analysis or GSEA and Over-Represented Analysis or ORA, we are building a PERMANOVA-based pathway aggregation and analysis pipeline. By utilizing a non-parametric method that is independent from the pathway definition, we has proven that our tool performed better than the older approaches in terms of sensitivity and false positive-controlling.
 
-# Motivation:
+# Specific Goals:
 1. To evaluate whether our method outperforms GSEA and ORA, we simulate data that not only reflects the complexity of high-dimensional omics but also includes challenging scenarios where traditional methods may fail. We also simulate a scenario that our method may also do not work as well under a statistical assumption.
    Scenario a: Small effect size (biological difference) in gene counts between 2 sample groups.
    Scenario b: Genes in pathways that indicates multi-colinearity (or multivariate property) (e.g, gene A and gene B negatively or positively correlate to one another)
