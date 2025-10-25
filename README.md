@@ -28,6 +28,8 @@ Comparision of ORA and our method in Scenario b, c and d mentioned above, where 
 
 We identify a limitation in our method:
 <img width="709" height="380" alt="Screenshot 2025-10-02 at 12 05 54 PM" src="https://github.com/user-attachments/assets/44928f0c-7d8d-413e-a1c5-5d2d416bbc97" />
+
+
 <img width="516" height="328" alt="image" src="https://github.com/user-attachments/assets/c2f9febe-2480-412e-86e9-5551ff888d33" />
 
 F-statistics calculated from PERMANOVA test can be used as an effect-size measurement:
