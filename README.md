@@ -1,4 +1,4 @@
-# PERMANOVA-Based Pathway Aggreation and Enrichment Analytical Tool
+# PERMANOVA-Based Pathway Aggreation and Enrichment Tool
 <!-- R package badges -->
 ![broom](https://img.shields.io/badge/R-broom-blue?style=flat&logo=r)
 ![ggplot2](https://img.shields.io/badge/R-ggplot2-orange?style=flat&logo=r)
