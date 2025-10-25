@@ -1,13 +1,14 @@
+# PERMANOVA-Based Pathway Aggreation and Enrichment Analytical Tool
 <!-- R package badges -->
 ![broom](https://img.shields.io/badge/R-broom-blue?style=flat&logo=r)
 ![ggplot2](https://img.shields.io/badge/R-ggplot2-orange?style=flat&logo=r)
 ![plotly](https://img.shields.io/badge/R-plotly-green?style=flat&logo=r)
 ![vegan](https://img.shields.io/badge/R-vegan-purple?style=flat&logo=r)
 
-#  Project Description:
+##  Project Description:
 To accommodate for some disadvantages in the current pathway enrichment analytical approaches -  Gene Set Enrichment Analysis or GSEA and Over-Represented Analysis or ORA, we are building a PERMANOVA-based pathway aggregation and analysis pipeline. By utilizing a non-parametric method that is independent from the pathway definition, we has proven that our tool performed better than the older approaches in terms of sensitivity and false positive-controlling.
 
-# Specific Goals:
+## Specific Goals:
 1. To evaluate whether our method outperforms GSEA and ORA, we simulate data that not only reflects the complexity of high-dimensional omics but also includes challenging scenarios where traditional methods may fail. We also simulate a scenario that our method may also do not work as well under a statistical assumption.
    Scenario a: Small effect size (biological difference) in gene counts between 2 sample groups.
    Scenario b: Genes in pathways that indicates multi-colinearity (or multivariate property) (e.g, gene A and gene B negatively or positively correlate to one another)
@@ -19,7 +20,7 @@ To accommodate for some disadvantages in the current pathway enrichment analytic
 3. We run a real dataset (Type 2 diabetes dataset) on our tool, GSEA and ORA and see if the biological hits are improved in our method
 4. We also test for what metric (or measurement) from our PERMANOVA-based approach can be used as an indicator of effect size
 
-# Results Figure:
+## Results Figure:
 The overall performance of our PERMANOVA-based method is not affected even when there is only small changes across sample group:
 <img width="754" height="464" alt="image" src="https://github.com/user-attachments/assets/2a928c3e-d809-493f-a703-ebf968c951cd" />
 
@@ -38,11 +39,11 @@ F-statistics calculated from PERMANOVA test can be used as an effect-size measur
 How different aspects or parameters can mildly affect our tool's performance metrics:
 <img width="945" height="486" alt="Screenshot 2025-10-02 at 12 07 38 PM" src="https://github.com/user-attachments/assets/1dfe6b23-37d7-491c-816e-b152e7d530fc" />
 
-# Conclusions:
+## Conclusions:
 With preliminary results from simulated data, it is promising that our method indeed results in a better performance in a beachmark with older approaches. 
 We are working with bigger round of synthetic data with more various pathway sizes/effect size changes as well as applying this to real-life dataset.
 
-# Citations:
+## Citations:
 1. Subramanian, A., Tamayo, P., Mootha, V. K., Mukherjee, S., Ebert, B. L., Gillette, M. A., Paulovich, A., Pomeroy, S. L., Golub, T. R., Lander, E. S., & Mesirov, J. P. (2005). Gene set enrichment analysis: a knowledge-based approach for interpreting genome-wide expression profiles. Proceedings of the National Academy of Sciences of the United States of America, 102(43), 15545–15550.
 2. Karp, P.D., Midford, P.E., Caspi, R. et al. Pathway size matters: the influence of pathway granularity on over-representation (enrichment analysis) statistics. (2021). BMC Genomics 22, 191 
 3. Anderson, M. J. Permutational Multivariate Analysis of Variance (PERMANOVA). (2017). Wiley StatsRef: Statistics Reference Online. 
