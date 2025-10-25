@@ -26,9 +26,9 @@ The overall performance of our PERMANOVA-based method is not affected even when 
 Comparision of ORA and our method in Scenario b, c and d mentioned above, where in most cases our method showed improved performance between True Positive Rates and False Positive Rates:
 <img width="1032" height="475" alt="Screenshot 2025-10-02 at 12 05 11 PM" src="https://github.com/user-attachments/assets/70a6d316-be3a-4df8-95b3-44c810cfbc30" />
 
+
 We identify a limitation in our method:
 <img width="709" height="380" alt="Screenshot 2025-10-02 at 12 05 54 PM" src="https://github.com/user-attachments/assets/44928f0c-7d8d-413e-a1c5-5d2d416bbc97" />
-
 
 <img width="516" height="328" alt="image" src="https://github.com/user-attachments/assets/c2f9febe-2480-412e-86e9-5551ff888d33" />
 
