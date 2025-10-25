@@ -4,7 +4,7 @@
 ![plotly](https://img.shields.io/badge/R-plotly-green?style=flat&logo=r)
 ![vegan](https://img.shields.io/badge/R-vegan-purple?style=flat&logo=r)
 
-# Descriptions:
+#  Project Description:
 To accommodate for some disadvantages in the current pathway enrichment analytical approaches -  Gene Set Enrichment Analysis or GSEA and Over-Represented Analysis or ORA, we are building a PERMANOVA-based pathway aggregation and analysis pipeline. By utilizing a non-parametric method that is independent from the pathway definition, we has proven that our tool performed better than the older approaches in terms of sensitivity and false positive-controlling.
 
 # Motivation:
